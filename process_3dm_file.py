@@ -3,10 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rhino3dm
 import torch
+import torch_geometric.transforms as T
 from torch_geometric.transforms import KNNGraph
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import os
+
+classes = ["MN", "BK"]
 
 
 def load_model(file_name):
@@ -53,12 +56,8 @@ def load_from_json(file_name):
     except FileNotFoundError:
         return False
     
-def vertices_to_KNNGraph(vertices, k=6):
-    data = Data(x=torch.tensor(vertices, dtype=torch.float))
-
-    data.transform = KNNGraph(k=6)
-    # knn_graph = KNNGraph(k=k)(data)
-    # return knn_graph
+def vertex_to_data(vertices, label, k=6):
+    data = Data(pos=torch.tensor(vertices, dtype=torch.float), y=torch.tensor([classes.index(label)]))
 
     return data
 
@@ -80,7 +79,7 @@ def process_all_models():
                 print("Loading vertices from file:", json_file_name)
                 vertices = np.array(load_from_json(json_file_name))
 
-            data = vertices_to_KNNGraph(vertices, k=6)
+            data = vertex_to_data(vertices, file_name[12:14], k=6)
             models.append(data)
     return models
 
@@ -110,7 +109,7 @@ def process_all_models():
     # graph = vertices_to_KNNGraph(vertices, k=6)
     # print(graph)
 
-    data = vertices_to_KNNGraph(vertices, k=6)
+    data = vertex_to_data(vertices, k=6)
 
     if False:
         # plot vertices in 3D
@@ -145,7 +144,7 @@ if __name__ == "__main__":
     # graph = vertices_to_KNNGraph(vertices, k=6)
     # print(graph)
 
-    data = vertices_to_KNNGraph(vertices, k=6)
+    data = vertex_to_data(vertices, k=6)
 
     if False:
         # plot vertices in 3D
