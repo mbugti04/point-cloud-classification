@@ -146,6 +146,7 @@ def train():
 
     total_loss = 0
     for data in train_loader:
+        print(data.x, data.pos, data.batch)
         data = data.to(device)
         optimizer.zero_grad()
         out = model(data.x, data.pos, data.batch)
@@ -177,7 +178,7 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20,
                                                 gamma=0.5)
 
-    for epoch in range(1, 201):
+    for epoch in range(1, 2):
         loss = train()
         test_acc = test(test_loader)
         print(f'Epoch {epoch:03d}, Loss: {loss:.4f}, Test: {test_acc:.4f}')

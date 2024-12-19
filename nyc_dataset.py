@@ -6,9 +6,9 @@ import torch_geometric.transforms as T
 from torch_geometric.transforms import KNNGraph
 
 
-class MyDataset(Dataset):
+class NYCDataset(Dataset):
     def __init__(self, data_list):
-        super(MyDataset, self).__init__()
+        super(NYCDataset, self).__init__()
         self.data_list = data_list
 
     def len(self):
@@ -26,18 +26,20 @@ class MyDataset(Dataset):
 
         return data
 
-# Assuming you have a data_list containing your data
-data_list = process_3dm_file.process_all_models()
 
-# Create an instance of your dataset
-dataset = MyDataset(data_list)
+if __name__ == "__main__":
+    # Assuming you have a data_list containing your data
+    data_list = process_3dm_file.process_all_models()
 
-# Access the data using dataset[idx]
-# Example:
-data = dataset[0]
+    # Create an instance of your dataset
+    dataset = NYCDataset(data_list)
 
-print(data)
+    # Access the data using dataset[idx]
+    # Example:
+    data = dataset[0]
 
-dataset.transform = T.Compose([KNNGraph(k=6)])
+    print(data)
 
-print(dataset[0])
+    dataset.transform = T.Compose([KNNGraph(k=6)])
+
+    print(dataset[0])

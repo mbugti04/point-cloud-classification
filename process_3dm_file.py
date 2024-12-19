@@ -73,7 +73,9 @@ def process_all_models():
                 model = load_model(file_directory + file_name)
                 vertices = process_3dm(model)
                 vertices = np.array(vertices)
-                vertices = vertices[::100]
+                # select 256 random vertices
+                vertices = vertices[np.random.choice(vertices.shape[0], 256, replace=False)]
+                # vertices = vertices[::100]
                 save_to_json(vertices, json_file_name)
             else:
                 print("Loading vertices from file:", json_file_name)
