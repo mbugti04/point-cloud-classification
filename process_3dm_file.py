@@ -2,24 +2,34 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import rhino3dm
+import torch
+from torch_geometric.transforms import KNNGraph
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+import os
+
 
 def load_model(file_name):
      return rhino3dm.File3dm.Read(file_name)
 
+# Pass in a .3dm model
+# Returns a list of vertices
 def process_3dm(model):
     combined_vertices = []
 
     for obj in model.Objects:
         geometry = obj.Geometry
+        # objects in the NYC dataset are either breps or polylines(?)
         if isinstance(geometry, rhino3dm.Brep):
             brep = geometry
             faces = brep.Faces
             
             for face in faces:
                 mesh = face.GetMesh(rhino3dm.MeshType.Any)
-                vertices = [[vertex.X, vertex.Y, vertex.Z] for vertex in mesh.Vertices]
-                for vertex in vertices:
-                    combined_vertices.append(vertex)
+                if mesh is not None:
+                    vertices = [[vertex.X, vertex.Y, vertex.Z] for vertex in mesh.Vertices]
+                    for vertex in vertices:
+                        combined_vertices.append(vertex)
         # if isinstance(geometry, rhino3dm.PolylineCurve):
         #     polylinecurve = geometry
         #     point_count = polylinecurve.PointCount
@@ -42,9 +52,40 @@ def load_from_json(file_name):
         return vertices
     except FileNotFoundError:
         return False
+    
+def vertices_to_KNNGraph(vertices, k=6):
+    data = Data(x=torch.tensor(vertices, dtype=torch.float))
 
-if __name__ == "__main__":
-    file_directory = r"data\cities"
+    data.transform = KNNGraph(k=6)
+    # knn_graph = KNNGraph(k=k)(data)
+    # return knn_graph
+
+    return data
+
+def process_all_models():
+    models = []
+    file_directory = "data\\NYC\\"
+    file_list = os.listdir(file_directory)
+    for file_name in file_list:
+        if file_name.endswith(".3dm"):
+            json_file_name = file_directory + file_name[:-4] + ".json"
+            if not load_from_json(json_file_name):
+                print("Obtaining vertices from 3dm file:", file_name)
+                model = load_model(file_directory + file_name)
+                vertices = process_3dm(model)
+                vertices = np.array(vertices)
+                vertices = vertices[::100]
+                save_to_json(vertices, json_file_name)
+            else:
+                print("Loading vertices from file:", json_file_name)
+                vertices = np.array(load_from_json(json_file_name))
+
+            data = vertices_to_KNNGraph(vertices, k=6)
+            models.append(data)
+    return models
+
+
+
     file_name = r"\NYC_3DModel_MN05"
 
     if not load_from_json(file_directory + file_name + ".json"):
@@ -66,8 +107,49 @@ if __name__ == "__main__":
         print("Loading vertices from file")
         vertices = np.array(load_from_json(file_directory + file_name + ".json"))
 
-    # plot vertices in 3D
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(vertices[:,0], vertices[:,1], vertices[:,2], s=1)
-    plt.show()
+    # graph = vertices_to_KNNGraph(vertices, k=6)
+    # print(graph)
+
+    data = vertices_to_KNNGraph(vertices, k=6)
+
+    if False:
+        # plot vertices in 3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(vertices[:,0], vertices[:,1], vertices[:,2], s=1)
+        plt.show()
+
+if __name__ == "__main__":
+    file_directory = r"data\NYC"
+    file_name = r"\NYC_3DModel_MN05"
+
+    if not load_from_json(file_directory + file_name + ".json"):
+        print("Loading vertices from 3dm file")
+
+        model = load_model(file_directory + file_name + ".3dm")
+
+        vertices = process_3dm(model)
+        vertices = np.array(vertices)
+
+        print("Vertex count: ", len(vertices))
+
+        # Plot every x vertices
+        x = 100
+        vertices = vertices[::x]
+        print("Vertex count: ", len(vertices))
+        save_to_json(vertices, file_directory + file_name + ".json")
+    else:
+        print("Loading vertices from file")
+        vertices = np.array(load_from_json(file_directory + file_name + ".json"))
+
+    # graph = vertices_to_KNNGraph(vertices, k=6)
+    # print(graph)
+
+    data = vertices_to_KNNGraph(vertices, k=6)
+
+    if False:
+        # plot vertices in 3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(vertices[:,0], vertices[:,1], vertices[:,2], s=1)
+        plt.show()
