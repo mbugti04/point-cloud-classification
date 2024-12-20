@@ -6,7 +6,11 @@ import requests
 import zipfile
 from bs4 import BeautifulSoup
 import process_3dm_file
+import memory_profiler
+import gc
 
+
+# @memory_profiler.profile
 def download_data():
     url = "https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page"
 
@@ -37,13 +41,11 @@ def download_data():
             urllib.request.urlretrieve(link, file_path)
             print(f"Downloaded {file_name}")
             category_count[category] += 1
-            
-            # Unzip the file after downloading
-            unzip_files()
+            break
         else:
             print(f"File {file_name} already exists or category limit reached, skipping download")
 
-
+# @memory_profiler.profile
 def unzip_files():
     folder_path = "data/NYC"
     
@@ -64,8 +66,6 @@ def unzip_files():
 
             # reorganize_files()
             # print("yay it tried to reorganize")
-
-            process_3dm_file.process_all_models()
 
             break
 
@@ -103,8 +103,12 @@ def reorganize_files():
 
 
 
-
-download_data()
+if __name__ == "__main__":
+    for i in range(5):
+        download_data()
+        # Unzip the file after downloading
+        unzip_files()
+        process_3dm_file.process_all_models()
 # unzip_files()
 
 # reorganize_files()
