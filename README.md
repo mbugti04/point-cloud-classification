@@ -1,13 +1,21 @@
 # point-cloud-classification
 
-# Installation
-
-Download `pytorch`
-Download `pytorch-geometric` with additional dependencies
-
 # Info
 
-This project aims to classify locations with point cloud data. It is trained on segments of various cities.
+This project aims to classify New York City Boroughs with point cloud data. It is trained on segments of the five boroughs.
+
+# Installation
+
+## Requirements
+It would initially require 50GB of free space in order to download all of the dataset. However, I have changed it so that one file is download and processed at a time, thus greatly reducing the storage need
+
+Download `pytorch`
+
+Download `pytorch-geometric` with additional dependencies
+
+
+# How to Run
+Run `download_data.py`, which installs, unzips, and formats the dataset provided from the official [NYC 3D model dataset](https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page)
 
 # Methodology
 

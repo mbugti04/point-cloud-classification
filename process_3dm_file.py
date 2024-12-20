@@ -9,7 +9,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import os
 
-classes = ["MN", "BK"]
+classes = ["MN", "BX", "BK", "QN", "SI"]
 
 
 def load_model(file_name):
@@ -61,9 +61,56 @@ def vertex_to_data(vertices, label, k=6):
 
     return data
 
-def process_all_models():
-    models = []
+def convert_vertices_to_data():
     file_directory = "data\\NYC\\"
+
+    models = []
+    for root, dirs, files in os.walk(file_directory):
+        for file_name in files:
+            if file_name.endswith(".json"):
+                print("Loading vertices from file:", file_name)
+                with open(os.path.join(root, file_name), 'r') as f:
+                    vertices = json.load(f)
+                    vertices = np.array(vertices)
+                
+                # vertices = np.array(load_from_json(file_name))
+
+                # print(file_name)
+                # print(vertices)
+                # print(file_name[12:14])
+
+                data = vertex_to_data(vertices, file_name[12:14], k=6)
+                models.append(data)
+    
+    return models
+
+def process_all_models():
+    # models = []
+    file_directory = "data\\NYC\\"
+
+    models = []
+    for root, dirs, files in os.walk(file_directory):
+        for file_name in files:
+            if file_name.endswith(".3dm"):
+                json_file_name = os.path.join(root, file_name[:-4] + ".json")
+                if not load_from_json(json_file_name):
+                    print("Obtaining vertices from 3dm file:", file_name)
+                    model = load_model(os.path.join(root, file_name))
+                    vertices = process_3dm(model)
+
+                    samples = 4096
+                    # if vertices has less than 256 vertices, pad with zeros
+                    if len(vertices) < samples:
+                        vertices += [[0, 0, 0]] * (samples - len(vertices))
+                    vertices = np.array(vertices)
+                    # select 256 random vertices
+                    vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
+                    # vertices = vertices[::100]
+                    save_to_json(vertices, json_file_name)
+                    # Delete the 3dm file after processing
+                    os.remove(os.path.join(root, file_name))
+                
+    return models
     file_list = os.listdir(file_directory)
     for file_name in file_list:
         if file_name.endswith(".3dm"):

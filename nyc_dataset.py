@@ -26,7 +26,6 @@ class NYCDataset(Dataset):
 
         return data
 
-
 if __name__ == "__main__":
     # Assuming you have a data_list containing your data
     data_list = process_3dm_file.process_all_models()
