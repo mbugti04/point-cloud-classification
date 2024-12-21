@@ -3,8 +3,11 @@
 # Also, the dataset takes up around 50gb.
 # Thus, it is recommended to use the given, already converted data
 
+from multiprocessing import Process
 import random
 import shutil
+import subprocess
+import threading
 import urllib.request
 import os
 import requests
@@ -38,7 +41,7 @@ def download_from_link():
         # Check if the file or folder already exists
         if not os.path.exists(file_path) and not os.path.exists(folder_path):
             urllib.request.urlretrieve(link, file_path)
-            print(f"Downloaded {file_name}")
+            print(f"* Downloaded {file_name}")
 
             # Downloads one at a time so that the file may be processed first.
             # This is to save space.
@@ -72,39 +75,22 @@ def unzip_files():
             # Extracts one at a time so that the file may be processed first.
             break
 
-@memory_profiler.profile
+# @memory_profiler.profile
 def download_data():
-    for i in range(2):
+    while True:
         all_files_processed = download_from_link()
         unzip_files()
-        process_3dm_file.process_all_models()
 
-        if all_files_processed:
+        # Run the memory-intensive task in a subprocess
+        # If running in a virtual environment, the path to the venv is needed
+        process = Process(target=subprocess.run, args=(["c:/Users/musta/Documents/point-cloud-classification/.venv/Scripts/python.exe", "process_script.py"],))
+        process.start()
+        process.join()
+
+        if not all_files_processed:
             print("Done!")
             break
 
-@memory_profiler.profile
-def debug_read():
-    model = process_3dm_file.load_model(r"C:\Users\musta\Downloads\nyc_3dmodel_bx02\NYC_3DModel_BX02.3dm")
-    for i in range(5):
-        vertices = process_3dm_file.process_3dm(model)
-
-        # Explicitly delete attributes of model if it has any
-        # if hasattr(model, '__dict__'):
-        #     for attr in list(model.__dict__.keys()):
-        #         delattr(model, attr)
-
-        # del model
-        # gc.collect()
-
-        # Explicitly delete attributes of vertices if it has any
-        if hasattr(vertices, '__dict__'):
-            for attr in list(vertices.__dict__.keys()):
-                delattr(vertices, attr)
-
-        del vertices
-        gc.collect()
-
 if __name__ == "__main__":
-    # download_data()
-    debug_read()
+    download_data()
+    os._exit(0)
