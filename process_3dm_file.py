@@ -1,3 +1,8 @@
+# This file is for processing the .3dm file type so that it may be usable.
+# Mainly, it extracts the vertices from the meshes so that they may be used as 'point clouds'.
+# These are saved into .json files.
+# There are also helper functions to return the vertrices from the .json files.
+
 import json
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,49 +16,26 @@ import os
 import gc
 import memory_profiler
 
-
+# Labels for the different boroughs
 classes = ["MN", "BX", "BK", "QN", "SI"]
 
 
-# @memory_profiler.profile
+# Reads the .3dm file
 def load_model(file_name):
      return rhino3dm.File3dm.Read(file_name)
 
-# Pass in a .3dm model
-# Returns a list of vertices
-# @memory_profiler.profile
+# Extracts vertices from .3dm model
 def process_3dm(model):
     combined_vertices = []
-
     if model is not None:
         for obj in model.Objects:
             geometry = obj.Geometry
-            # objects in the NYC dataset are either breps or polylines(?)
+            # objects in the NYC dataset are either breps or polylinecurves
             if isinstance(geometry, rhino3dm.Brep):
                 brep = geometry
-                faces = brep.Faces
-                
-                for face in faces:
-                    mesh = face.GetMesh(rhino3dm.MeshType.Any)
-                    if mesh is not None:
-                        vertices = [[vertex.X, vertex.Y, vertex.Z] for vertex in mesh.Vertices]
-                        for vertex in vertices:
-                            combined_vertices.append(vertex)
-        # if isinstance(geometry, rhino3dm.PolylineCurve):
-        #     polylinecurve = geometry
-        #     point_count = polylinecurve.PointCount
-        #     for i in range(point_count):
-        #         point = polylinecurve.Point(i)
-        #         # print(point.X, point.Y, point.Z)
-        #         combined_vertices.append([point.X, point.Y, point.Z]
-
-    del model
-    del geometry
-    del brep
-    del faces
-    del mesh
-    gc.collect()
-
+                vertices = [[vertex.Location.X, vertex.Location.Y, vertex.Location.Z] for vertex in brep.Vertices]
+                for vertex in vertices:
+                    combined_vertices.append(vertex)
     return combined_vertices
 
 def save_to_json(vertices, file_name):
@@ -68,10 +50,11 @@ def load_from_json(file_name):
         return vertices
     except FileNotFoundError:
         return False
-    
+
+# Converts a list of vertices into tensors
+# which can be used for processing in pytorch
 def vertex_to_data(vertices, label, k=6):
     data = Data(pos=torch.tensor(vertices, dtype=torch.float), y=torch.tensor([classes.index(label)]))
-
     return data
 
 def return_all_models_from_json():
@@ -124,33 +107,36 @@ def process_all_models():
                     os.remove(os.path.join(root, file_name))
                     break
 
+
 if __name__ == "__main__":
-    file_directory = r"data\NYC"
-    file_name = r"\NYC_3DModel_MN05"
 
-    if not load_from_json(file_directory + file_name + ".json"):
-        print("Loading vertices from 3dm file")
+    if False:
+        file_directory = r"data\NYC"
+        file_name = r"\NYC_3DModel_MN05"
 
-        model = load_model(file_directory + file_name + ".3dm")
+        if not load_from_json(file_directory + file_name + ".json"):
+            print("Loading vertices from 3dm file")
 
-        vertices = process_3dm(model)
-        vertices = np.array(vertices)
+            model = load_model(file_directory + file_name + ".3dm")
 
-        print("Vertex count: ", len(vertices))
+            vertices = process_3dm(model)
+            vertices = np.array(vertices)
 
-        # Plot every x vertices
-        x = 100
-        vertices = vertices[::x]
-        print("Vertex count: ", len(vertices))
-        save_to_json(vertices, file_directory + file_name + ".json")
-    else:
-        print("Loading vertices from file")
-        vertices = np.array(load_from_json(file_directory + file_name + ".json"))
+            print("Vertex count: ", len(vertices))
 
-    # graph = vertices_to_KNNGraph(vertices, k=6)
-    # print(graph)
+            # Plot every x vertices
+            x = 100
+            vertices = vertices[::x]
+            print("Vertex count: ", len(vertices))
+            save_to_json(vertices, file_directory + file_name + ".json")
+        else:
+            print("Loading vertices from file")
+            vertices = np.array(load_from_json(file_directory + file_name + ".json"))
 
-    data = vertex_to_data(vertices, k=6)
+        # graph = vertices_to_KNNGraph(vertices, k=6)
+        # print(graph)
+
+        data = vertex_to_data(vertices, k=6)
 
     if False:
         # plot vertices in 3D
