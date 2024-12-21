@@ -1,5 +1,4 @@
-# point-cloud-classification
-
+# Point Cloud Classification
 
 # Info
 
@@ -50,3 +49,4 @@ The dataset initally required around 50GB of free space in order to download all
 ![](images/pct-confusion-matrix.png)
 
 # References
+Guo, Meng-Hao, et al. "Pct: Point cloud transformer." Computational Visual Media 7 (2021): 187-199.
