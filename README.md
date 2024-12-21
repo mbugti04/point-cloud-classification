@@ -3,7 +3,7 @@
 ![](images/niv-rozenberg-ySNtJhDX-cw-unsplash1.jpg)
 Photo by <a href="https://unsplash.com/@nivroz?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Niv Rozenberg</a> on <a href="https://unsplash.com/photos/aerial-view-of-city-during-day-time-ySNtJhDX-cw?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Unsplash</a>
 
-This project aims to classify New York City Boroughs with point cloud data using a Graph Neural Network. The model is trained on segments of the five boroughs. The idea is that the network picks up on each borough's distinct features (building size, density, distribution). The PointNet++ Graph Convolutional Neural Network obtains a testing accuracy of <>%, while the Point Cloud Transformer achieves a testing accuracy of <>%
+This project aims to classify New York City Boroughs with point cloud data using a Graph Neural Network. The model is trained on segments of the five boroughs. The idea is that the network picks up on each borough's distinct features (building size, density, distribution). The PointNet++ Graph Convolutional Neural Network obtains a testing accuracy of 30%, while the Point Cloud Transformer achieves a testing accuracy of up to 83%
 
 # Setup
 
@@ -38,16 +38,19 @@ Finally, the dataset is fed into either a graph convolutional network or a point
 The dataset initally required around 50GB of free space in order to download all of the dataset. However, I now download and process one file at a time, thus greatly reducing the storage need.
 
 # Images
-## Aerial Point Cloud Plot of Manhattan 
-![Aerial Point Cloud Plot of Manhattan](images/nyc_3d_plot1.png)
-## Top-Down Point Cloud Plot of Manhattan
-![Top-Down Point Cloud Plot of Manhattan](images/nyc_3d_plot2.png)
+## Dataset Example
+### Aerial View of Manhattan
+![Aerial View of Manhattan](images/maps_image.png)
+### Aerial Point Cloud Plot of Manhattan 
+![Aerial Point Cloud Plot of Manhattan](images/nyc_3d_plot5.png)
+### Top-Down Point Cloud Plot of Manhattan
+![Top-Down Point Cloud Plot of Manhattan](images/nyc_3d_plot6.png)
 
 ## Point Cloud Transformer
 ###  Accuracy
-![](images/pct-accuracy.png)
+![](images/pct-accuracy-100.png)
 ### Confusion Matrix
-![](images/pct-confusion-matrix.png)
+![](images/pct-confusion-matrix-100.png)
 
 # References
 Guo, Meng-Hao, et al. "Pct: Point cloud transformer." Computational Visual Media 7 (2021): 187-199.
