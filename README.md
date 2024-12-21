@@ -19,7 +19,7 @@ Run `point_transformer_classification.ipynb` to train and test the Point Cloud T
 
 Run `graph_convolutional_network.ipynb` to train and test the PointNet++ Graph Convolutional Network.
 
-Optionally, you can redownload the dataset by running `download_data.py`, which installs, unzips, and formats the dataset provided from the official [NYC 3D model dataset](https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page).
+Since as of now, the processed dataset is too large for github, you must download the dataset by running `download_data.py`, which installs, unzips, and formats the dataset provided from the official [NYC 3D model dataset](https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page). This may take about an hour. In the future, I will trim the processed dataset and upload it.
 
 # Methodology
 
