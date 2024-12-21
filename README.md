@@ -37,15 +37,16 @@ Finally, the dataset is fed into either a graph convolutional network or a point
 ## Challenges
 The dataset initally required around 50GB of free space in order to download all of the dataset. However, I now download and process one file at a time, thus greatly reducing the storage need.
 
-## 3D View
+# Images
+## Aerial Point Cloud Plot of Manhattan 
 ![Aerial Point Cloud Plot of Manhattan](images/nyc_3d_plot1.png)
-
-Point clound of Manhattan
-
-
-## Top-down View
+## Top-Down Point Cloud Plot of Manhattan
 ![Top-Down Point Cloud Plot of Manhattan](images/nyc_3d_plot2.png)
 
-Top-down view of Manhattan
+## Point Cloud Transformer
+###  Accuracy
+![](images/pct-accuracy.png)
+### Confusion Matrix
+![](images/pct-confusion-matrix.png)
 
 # References
