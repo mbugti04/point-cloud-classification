@@ -16,15 +16,15 @@ import os
 import gc
 import memory_profiler
 
-# Labels for the different boroughs
-classes = ["MN", "BX", "BK", "QN", "SI"]
 
 
 # Reads the .3dm file
+# @memory_profiler.profile
 def load_model(file_name):
      return rhino3dm.File3dm.Read(file_name)
 
 # Extracts vertices from .3dm model
+# @memory_profiler.profile
 def process_3dm(model):
     combined_vertices = []
     if model is not None:
@@ -51,13 +51,16 @@ def load_from_json(file_name):
     except FileNotFoundError:
         return False
 
+# Labels for the different boroughs
+classes = ["MN", "BX", "BK", "QN", "SI"]
+
 # Converts a list of vertices into tensors
 # which can be used for processing in pytorch
 def vertex_to_data(vertices, label, k=6):
     data = Data(pos=torch.tensor(vertices, dtype=torch.float), y=torch.tensor([classes.index(label)]))
     return data
 
-def return_all_models_from_json():
+def get_all_models_from_json():
     file_directory = "data\\NYC\\"
 
     models = []
@@ -78,6 +81,7 @@ def return_all_models_from_json():
     return models
 
 # @memory_profiler.profile
+# This method converts a .3dm file to .json
 def process_all_models():
     # models = []
     file_directory = "data\\NYC\\"
@@ -86,26 +90,26 @@ def process_all_models():
         for file_name in files:
             if file_name.endswith(".3dm"):
                 json_file_name = os.path.join(root, file_name[:-4] + ".json")
-                if not load_from_json(json_file_name):
-                    print("Obtaining vertices from 3dm file:", file_name)
-                    model = load_model(os.path.join(root, file_name))
-                    vertices = process_3dm(model)
 
-                    del model
-                    gc.collect()
+                print("Obtaining vertices from 3dm file:", file_name)
 
-                    samples = 8192
-                    # if vertices has less than 256 vertices, pad with zeros
-                    if len(vertices) < samples:
-                        vertices += [[0, 0, 0]] * (samples - len(vertices))
-                    vertices = np.array(vertices)
-                    # select 256 random vertices
-                    vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
-                    # vertices = vertices[::100]
-                    save_to_json(vertices, json_file_name)
-                    # Delete the 3dm file after processing
-                    os.remove(os.path.join(root, file_name))
-                    break
+                model = load_model(os.path.join(root, file_name))
+                vertices = process_3dm(model)
+
+                del model
+                gc.collect()
+
+                samples = 8192
+                # if vertices has less than x vertices, pad with zeros
+                if len(vertices) < samples:
+                    vertices += [[0, 0, 0]] * (samples - len(vertices))
+                vertices = np.array(vertices)
+                # select x random vertices
+                vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
+                # vertices = vertices[::100]
+                save_to_json(vertices, json_file_name)
+                # Delete the 3dm file after processing
+                os.remove(os.path.join(root, file_name))
 
 
 if __name__ == "__main__":
