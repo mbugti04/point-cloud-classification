@@ -21,12 +21,49 @@ from torch_geometric.utils import scatter
 if not WITH_TORCH_CLUSTER:
     quit("This example requires 'torch-cluster'")
 
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data/ModelNet10')
-pre_transform, transform = T.NormalizeScale(), T.SamplePoints(1024)
-train_dataset = ModelNet(path, '10', True, transform, pre_transform)
-test_dataset = ModelNet(path, '10', False, transform, pre_transform)
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+# path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data/ModelNet10')
+# pre_transform, transform = T.NormalizeScale(), T.SamplePoints(1024)
+# train_dataset = ModelNet(path, '10', True, transform, pre_transform)
+# test_dataset = ModelNet(path, '10', False, transform, pre_transform)
+# train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+# test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+from torch_geometric.transforms import KNNGraph
+import process_3dm_file
+import nyc_dataset
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+data_list = process_3dm_file.get_all_models_from_json()
+
+dataset = nyc_dataset.NYCDataset(data_list)
+
+dataset.transform = T.Compose([KNNGraph(k=6)])
+
+def split_list(a_list):
+    half = len(a_list)//2
+    return a_list[:half], a_list[half:]
+
+def get_by_class(class_name):
+    return [data for data in dataset if data.y == class_name]
+
+train_dataset = []
+test_dataset = []
+
+for i in range(5):
+    list = get_by_class(i)
+    train_list, test_list = split_list(list)
+    train_dataset += train_list
+    test_dataset += test_list
+
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=4)
+
+
+
+
+
+
 
 
 class TransformerBlock(torch.nn.Module):
@@ -146,7 +183,7 @@ def train():
 
     total_loss = 0
     for data in train_loader:
-        print(data.x, data.pos, data.batch)
+        # print(data.x, data.pos, data.batch)
         data = data.to(device)
         optimizer.zero_grad()
         out = model(data.x, data.pos, data.batch)
@@ -172,13 +209,13 @@ def test(loader):
 if __name__ == '__main__':
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = Net(0, train_dataset.num_classes,
+    model = Net(0, 5,
                 dim_model=[32, 64, 128, 256, 512], k=16).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20,
                                                 gamma=0.5)
 
-    for epoch in range(1, 2):
+    for epoch in range(1, 10):
         loss = train()
         test_acc = test(test_loader)
         print(f'Epoch {epoch:03d}, Loss: {loss:.4f}, Test: {test_acc:.4f}')
