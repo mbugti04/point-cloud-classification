@@ -1,4 +1,4 @@
-# point-cloud-classification
+# Point Cloud Classification
 
 ![](images/niv-rozenberg-ySNtJhDX-cw-unsplash1.jpg)
 Photo by <a href="https://unsplash.com/@nivroz?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Niv Rozenberg</a> on <a href="https://unsplash.com/photos/aerial-view-of-city-during-day-time-ySNtJhDX-cw?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Unsplash</a>
@@ -50,3 +50,4 @@ The dataset initally required around 50GB of free space in order to download all
 ![](images/pct-confusion-matrix.png)
 
 # References
+Guo, Meng-Hao, et al. "Pct: Point cloud transformer." Computational Visual Media 7 (2021): 187-199.
