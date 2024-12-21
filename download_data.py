@@ -37,6 +37,10 @@ def download_from_link():
         file_name = link.split("/")[-1]
         file_path = os.path.join("data", "NYC", file_name)
         folder_path = os.path.splitext(file_path)[0]
+
+        # Skip parks and airports
+        if 'park' in file_name.lower():
+            continue
         
         # Check if the file or folder already exists
         if not os.path.exists(file_path) and not os.path.exists(folder_path):
@@ -79,10 +83,9 @@ def unzip_files():
 def download_data():
     while True:
         all_files_processed = download_from_link()
-        unzip_files()
 
-        # Run the memory-intensive task in a subprocess
-        # If running in a virtual environment, the path to the venv is needed
+        # Memory leak is avoided by running .3dm file processing in a separate subprocess.
+        # If running in a virtual environment, the path to the venv is needed.
         process = Process(target=subprocess.run, args=(["c:/Users/musta/Documents/point-cloud-classification/.venv/Scripts/python.exe", "process_script.py"],))
         process.start()
         process.join()
