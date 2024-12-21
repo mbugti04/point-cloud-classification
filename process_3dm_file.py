@@ -60,7 +60,7 @@ def vertex_to_data(vertices, label, k=6):
     data = Data(pos=torch.tensor(vertices, dtype=torch.float), y=torch.tensor([classes.index(label)]))
     return data
 
-def get_all_models_from_json():
+def get_all_models_from_json(samples=-1):
     file_directory = "data\\NYC\\"
 
     models = []
@@ -71,7 +71,13 @@ def get_all_models_from_json():
                 with open(os.path.join(root, file_name), 'r') as f:
                     vertices = json.load(f)
                     vertices = np.array(vertices)
-                    # vertices = vertices[np.random.choice(vertices.shape[0], 256, replace=False)]
+
+                if samples != -1:
+                    # if vertices has less than x vertices, pad with zeros
+                    if len(vertices) < samples:
+                        vertices += [[0, 0, 0]] * (samples - len(vertices))
+                    # select x random vertices
+                    vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
 
                 label = file_name[12:14]
 
@@ -82,7 +88,7 @@ def get_all_models_from_json():
 
 # @memory_profiler.profile
 # This method converts a .3dm file to .json
-def process_all_models():
+def process_models():
     # models = []
     file_directory = "data\\NYC\\"
 
@@ -95,19 +101,28 @@ def process_all_models():
 
                 model = load_model(os.path.join(root, file_name))
                 vertices = process_3dm(model)
+                vertices = np.array(vertices)
 
                 del model
                 gc.collect()
 
-                samples = 8192
-                # if vertices has less than x vertices, pad with zeros
-                if len(vertices) < samples:
-                    vertices += [[0, 0, 0]] * (samples - len(vertices))
-                vertices = np.array(vertices)
-                # select x random vertices
-                vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
-                # vertices = vertices[::100]
+                # Boolean to determine if to sample points when saving to file or not.
+                # This saves space but loses information.
+                # It is also possible to save all points but sample them at run-time
+                #   so that you can vary the sample number without redownloading the entire dataset
+                do_sample = False
+                if do_sample:
+                    samples = 8192
+                    # if vertices has less than x vertices, pad with zeros
+                    if len(vertices) < samples:
+                        vertices += [[0, 0, 0]] * (samples - len(vertices))
+                    # select x random vertices
+                    vertices = vertices[np.random.choice(vertices.shape[0], samples, replace=False)]
+                    # vertices = vertices[::100]
+
+
                 save_to_json(vertices, json_file_name)
+
                 # Delete the 3dm file after processing
                 os.remove(os.path.join(root, file_name))
 
