@@ -1,0 +1,41 @@
+[project]
+name = "nyc-point-cloud"
+version = "0.2.0"
+description = "Classify NYC boroughs from point clouds extracted from the NYC 3D building model."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "numpy>=1.26",
+    "torch==2.8.*",
+    "torch-geometric==2.6.*",
+    # Needed by torch_geometric's fps/knn. Wheels come from the PyG index below.
+    "torch-cluster==1.6.3",
+    "rhino3dm>=8.9",
+    "requests>=2.32",
+    "scikit-learn>=1.5",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+hub = ["huggingface_hub>=0.25"]
+notebooks = ["jupyter"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+pcc = "pcc.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pcc*"]
+
+[tool.setuptools.package-data]
+pcc = ["dataset_card.md"]
+
+[tool.uv]
+# CPU wheels for torch-cluster (macOS, CPU-only Linux). For CUDA machines see
+# the README: install with pip from the cu128 page instead.
+find-links = ["https://data.pyg.org/whl/torch-2.8.0+cpu.html"]
