@@ -8,11 +8,12 @@ just from the 3D shape of its buildings? This project converts the city's
 official 3D building model into labeled point clouds and trains a Point
 Transformer to classify them by borough. 
 
-This improves upon the 2024 version, found in the [legacy](legacy/) folder.
+This improves upon the 2024 version of my project, found in the [legacy](legacy/) folder.
 
 ## Results
+The 2024 version reported 83% accuracy, chosen from the best epoch on a test set of about 30 samples. See [legacy/README.md](legacy/README.md).
 
-No results yet. The 2024 version reported 83% accuracy, chosen from the best epoch on a test set of about 30 samples. See [legacy/README.md](legacy/README.md).
+Results for the new version are in progress.
 
 | model | accuracy | balanced accuracy | macro-F1 |
 |---|---|---|---|
