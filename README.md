@@ -6,12 +6,13 @@ Photo by <a href="https://unsplash.com/@nivroz?utm_content=creditCopyText&utm_me
 Can a neural network tell which New York City borough a neighborhood is in,
 just from the 3D shape of its buildings? This project converts the city's
 official 3D building model into labeled point clouds and trains a Point
-Transformer to classify them by borough.
+Transformer to classify them by borough. 
+
+This improves upon the 2024 version, found in the [legacy](legacy/) folder.
 
 ## Results
 
-_Pending a full run on all districts. Report mean ± std across seeds from
-`runs/pct/summary.md` and `runs/baseline/summary.md`._
+No results yet. The 2024 version reported 83% accuracy, chosen from the best epoch on a test set of about 30 samples. See [legacy/README.md](legacy/README.md).
 
 | model | accuracy | balanced accuracy | macro-F1 |
 |---|---|---|---|
@@ -28,10 +29,9 @@ districts and stored in Rhino's `.3dm` format. The pipeline:
 1. **Download and extract** (`pcc download`). Reads each `.3dm` with
    [`rhino3dm`](https://github.com/mcneel/rhino3dm), keeps building vertices
    (facade, roof and footprint corners), converts millimeters to meters, and
-   drops duplicate vertices (about two thirds of the raw count). Districts are
-   handled one at a time and the raw files deleted, so the ~8.6 GB of zips are
-   never on disk together. Each file is parsed in a fresh subprocess to work
-   around memory that `rhino3dm` never frees.
+   drops duplicate vertices. Districts are handled one at a time and the raw files deleted, so
+   the ~7.8 GB of zips are never on disk together. Each file is parsed in a
+   fresh subprocess to work around memory that `rhino3dm` never frees.
 2. **Tile** (`pcc tile`). Cuts each district into 250 m tiles on a citywide grid.
    Each tile is one sample. Coordinates are made local: x and y relative to the
    tile center, z as height above the nearest building footprint. The model
@@ -40,15 +40,18 @@ districts and stored in Rhino's `.3dm` format. The pipeline:
    neighborhoods are never seen in training. Per borough, about 25% of
    districts go to test and 15% to validation.
 
-It should be noted that the city's download link for the third Staten Island district, SI03, is dead, leaving only two districts.
-
-The processed tiles can be published to the Hugging Face Hub with `pcc publish`.
+   Note that with Staten Island, the city's download link for its third
+   district, SI03, is dead, leaving two districts. One goes to test and the
+   other to train, so no whole district is left for validation. Staten
+   Island's validation tiles are instead a strip cut from one end of the train
+   district, with one row of tiles dropped between the strip and the rest so
+   they don't touch.
 
 ## Evaluation
 
 - **Checkpoint selection on validation only.** Each seed keeps the epoch with
-  the best validation macro-F1. The test set is scored once, with that
-  checkpoint.
+  the best validation macro-F1. Nothing is chosen using the test set: it is
+  only scored after training, with that checkpoint.
 - **Multiple seeds.** Results are mean ± std over seeds (default 0, 1, 2).
 - **Class balance.** Boroughs have very different tile counts, so the loss is
   weighted by inverse class frequency, and balanced accuracy and macro-F1 are
@@ -82,12 +85,12 @@ been tested yet.
 ## Usage
 
 ```bash
-uv run pcc download                    # all districts, ~8.6 GB downloaded one at a time
+uv run pcc download                    # all districts, ~7.8 GB downloaded one at a time
 uv run pcc tile                        # --tile-size 250 --min-points 256
 uv run pcc split                       # writes data/splits.json
 uv run pcc baseline                    # writes runs/baseline/summary.md
 uv run pcc train --seeds 0 1 2         # writes runs/pct/summary.md
-uv run pcc train --shuffle-labels --out runs/pct-shuffled --seeds 0
+uv run pcc train --shuffle-labels --out runs/pct-shuffled --seeds 0   # control: shuffled labels, scores should fall to chance
 uv run pytest
 ```
 
