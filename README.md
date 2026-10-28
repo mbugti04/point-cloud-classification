@@ -62,7 +62,7 @@ districts and stored in Rhino's `.3dm` format. The pipeline:
 
 ## Setup
 
-Requires Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.10–3.13 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --extra dev --extra hub
@@ -79,7 +79,7 @@ from the CUDA 12.8 build that matches PyPI's Linux torch 2.8:
 pip install -e ".[dev,hub]" --find-links https://data.pyg.org/whl/torch-2.8.0+cu128.html
 ```
 
-CUDA wheels exist for Python 3.10–3.12 on Linux x86_64. The GPU path hasn't
+CUDA wheels exist for Python 3.10–3.13 on Linux x86_64. The GPU path hasn't
 been tested yet.
 
 ## Usage

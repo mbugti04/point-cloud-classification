@@ -3,7 +3,7 @@ name = "nyc-point-cloud"
 version = "0.2.0"
 description = "Classify NYC boroughs from point clouds extracted from the NYC 3D building model."
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy>=1.26",
     "torch==2.8.*",
