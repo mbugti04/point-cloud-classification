@@ -56,12 +56,6 @@ The processed tiles can be published to the Hugging Face Hub with `pcc publish`.
 - **Baselines.** A majority-class predictor, and gradient boosting on twelve
   per-tile statistics (point count, height percentiles, spread). The Point
   Transformer is only interesting if it beats the latter.
-- **Sanity checks.**
-  - Test macro-F1 is also reported with every test tile rotated. This shows
-    whether the model relies on which way the street grid points (Manhattan's
-    grid is tilted about 29°), which training-time rotation is meant to remove.
-  - `--shuffle-labels` trains on permuted labels. Test scores should fall to
-    chance; if they don't, something is leaking.
 
 ## Setup
 
