@@ -116,3 +116,14 @@ def test_dataset_and_model_shapes(tiny_tiles):
         model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8, use_density=use_density)
         out = model(batch.pos, batch.batch, batch.density)
         assert out.shape == (3, len(config.BOROUGHS))
+
+
+def test_rotation_only_changes_direction_dependent_features():
+    from pcc.baseline import FEATURE_NAMES, rotate_z, tile_features
+
+    rng = np.random.default_rng(0)
+    points = rng.uniform([-125, -20, 0], [125, 20, 40], size=(500, 3))  # long in x
+    before = tile_features(points, 500)
+    after = tile_features(rotate_z(points, np.pi / 2), 500)
+    changed = {name for name, a, b in zip(FEATURE_NAMES, before, after) if not np.isclose(a, b)}
+    assert changed == {"x_std", "y_std"}
