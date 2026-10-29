@@ -2,7 +2,8 @@
 
 If gradient boosting on a dozen numbers (point count, height percentiles,
 spread) matches the Point Transformer, the transformer is not learning much
-beyond "how tall and how dense is this area".
+beyond "how tall and how dense is this area". The same model without
+`log_n_points` shows how much of that comes from density alone.
 """
 
 from pathlib import Path
@@ -48,12 +49,16 @@ def run(tiles_dir: Path, splits_path: Path, out_dir: Path) -> dict:
 
     results = {}
     majority = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
-    results["majority"] = summarize([classification_metrics(y_test, majority.predict(X_test))])
+    test = classification_metrics(y_test, majority.predict(X_test))
+    results["majority"] = {**summarize([test]), "confusion_matrix": test["confusion_matrix"]}
 
     # Deterministic without early stopping, so one run is enough.
-    clf = HistGradientBoostingClassifier(class_weight="balanced", early_stopping=False, random_state=0)
-    clf.fit(X_train, y_train)
-    results["gradient_boosting"] = summarize([classification_metrics(y_test, clf.predict(X_test))])
+    no_density = [i for i, name in enumerate(FEATURE_NAMES) if name != "log_n_points"]
+    for name, cols in [("gradient_boosting", slice(None)), ("gradient_boosting_no_density", no_density)]:
+        clf = HistGradientBoostingClassifier(class_weight="balanced", early_stopping=False, random_state=0)
+        clf.fit(X_train[:, cols], y_train)
+        test = classification_metrics(y_test, clf.predict(X_test[:, cols]))
+        results[name] = {**summarize([test]), "confusion_matrix": test["confusion_matrix"]}
 
     write_json(out_dir / "summary.json", results)
     md = "".join(format_summary(f"Baseline: {name}, test set", s) + "\n" for name, s in results.items())

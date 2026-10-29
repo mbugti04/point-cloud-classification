@@ -38,6 +38,10 @@ def summarize(per_seed: list[dict]) -> dict:
             "std": float(values.std(ddof=1)) if len(values) > 1 else 0.0,
             "values": values.tolist(),
         }
+    out["per_class_recall"] = {}
+    for b in config.BOROUGHS:
+        values = [m["per_class_recall"][b] for m in per_seed if m["per_class_recall"][b] is not None]
+        out["per_class_recall"][b] = float(np.mean(values)) if values else None
     return out
 
 
@@ -47,6 +51,10 @@ def format_summary(name: str, summary: dict) -> str:
     for key in SUMMARY_KEYS:
         s = summary[key]
         rows.append(f"| {key} | {100 * s['mean']:.1f} ± {100 * s['std']:.1f}% |")
+    recall = summary["per_class_recall"]
+    rows += ["", "Recall by borough" + (" (mean over seeds)" if summary["seeds"] > 1 else "") + ":", "",
+             "| " + " | ".join(config.BOROUGHS) + " |", "|" + "---|" * len(config.BOROUGHS),
+             "| " + " | ".join("–" if recall[b] is None else f"{100 * recall[b]:.1f}%" for b in config.BOROUGHS) + " |"]
     return "\n".join(rows) + "\n"
 
 
