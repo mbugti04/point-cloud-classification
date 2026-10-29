@@ -42,7 +42,7 @@ def _train(args):
     cfg = TrainConfig(
         tiles_dir=str(args.tiles_dir), splits_path=str(args.splits), out_dir=str(args.out),
         seeds=args.seeds, epochs=args.epochs, batch_size=args.batch_size, num_points=args.num_points,
-        lr=args.lr, rotate=not args.no_rotate, shuffle_labels=args.shuffle_labels,
+        lr=args.lr, rotate=not args.no_rotate, use_density=not args.no_density, shuffle_labels=args.shuffle_labels,
         max_tiles_per_split=args.max_tiles_per_split, num_workers=args.num_workers, device=args.device,
     )
     run(cfg)
@@ -104,6 +104,8 @@ def main(argv=None):
     p.add_argument("--num-points", type=int, default=1024)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--no-rotate", action="store_true", help="disable random rotation augmentation")
+    p.add_argument("--no-density", action="store_true",
+                   help="don't give the model the tile's vertex count (the setup of the first full run)")
     p.add_argument("--shuffle-labels", action="store_true",
                    help="sanity check: train on shuffled labels; test scores should drop to chance")
     p.add_argument("--max-tiles-per-split", type=int, help="cap tiles per split, for quick smoke tests")

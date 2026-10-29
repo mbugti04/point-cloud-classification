@@ -36,8 +36,9 @@ class TileDataset(Dataset):
 
     Coordinates are divided by half the tile size, so x and y fall in [-1, 1]
     and height keeps its real scale relative to the tile (taller buildings
-    stay taller). Training mode adds a random rotation about the vertical
-    axis and small jitter. Eval mode resamples deterministically per tile.
+    stay taller). Resampling hides how many vertices the tile had, so the
+    original count is passed alongside as `density` (log scale). Training
+    mode adds a random rotation about the vertical axis and small jitter. Eval mode resamples deterministically per tile.
     """
 
     def __init__(
@@ -81,7 +82,9 @@ class TileDataset(Dataset):
                 c, s = np.cos(theta), np.sin(theta)
                 pos[:, :2] = pos[:, :2] @ np.array([[c, -s], [s, c]], dtype=np.float32)
             pos = pos + rng.normal(0, 0.005, pos.shape).astype(np.float32)
+        density = np.log(self.store.n_points(district, index))
         return Data(pos=torch.from_numpy(np.ascontiguousarray(pos, dtype=np.float32)),
+                    density=torch.tensor([[density]], dtype=torch.float),
                     y=torch.tensor([self.labels[idx]]))
 
     def class_counts(self, num_classes: int) -> np.ndarray:

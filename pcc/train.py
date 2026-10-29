@@ -37,6 +37,7 @@ class TrainConfig:
     dims: tuple[int, ...] = (32, 64, 128, 256, 512)
     k: int = 16
     rotate: bool = True
+    use_density: bool = True
     shuffle_labels: bool = False
     max_tiles_per_split: int | None = None
     num_workers: int = 0
@@ -70,7 +71,7 @@ def predict(model, loader, device, theta: float = 0.0) -> tuple[np.ndarray, np.n
     for batch in loader:
         batch = batch.to(device)
         pos = rotate_z(batch.pos, theta) if theta else batch.pos
-        out = model(pos, batch.batch)
+        out = model(pos, batch.batch, batch.density)
         total_loss += F.nll_loss(out, batch.y, reduction="sum").item()
         preds.append(out.argmax(dim=1).cpu().numpy())
         labels.append(batch.y.cpu().numpy())
@@ -106,7 +107,11 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
     counts = train_ds.class_counts(num_classes)
     weights = torch.tensor(counts.sum() / np.maximum(counts, 1) / num_classes, dtype=torch.float, device=device)
 
-    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k).to(device)
+    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, cfg.use_density)
+    if cfg.use_density:
+        log_n = np.log([store.n_points(d, i) for d, i in tiles["train"]])
+        model.set_density_stats(float(log_n.mean()), float(log_n.std()) or 1.0)
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.lr_step, gamma=cfg.lr_gamma)
 
@@ -122,7 +127,7 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
         for batch in train_loader:
             batch = batch.to(device)
             optimizer.zero_grad()
-            loss = F.nll_loss(model(batch.pos, batch.batch), batch.y, weight=weights)
+            loss = F.nll_loss(model(batch.pos, batch.batch, batch.density), batch.y, weight=weights)
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * batch.num_graphs
@@ -154,6 +159,7 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
 
     # Rotating every test tile should barely change predictions if the model
     # learned building shapes rather than which way the street grid points.
+    # With --no-rotate a drop here shows how much it leans on grid direction.
     rotated = []
     for theta in np.linspace(0, 2 * np.pi, 8, endpoint=False)[1:]:
         _, y_rot, _ = predict(model, test_loader, device, theta=float(theta))

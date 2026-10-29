@@ -107,8 +107,12 @@ def test_dataset_and_model_shapes(tiny_tiles):
     assert item.pos.shape == (128, 3)
     assert torch.equal(item.pos, eval_ds[0].pos)  # eval sampling is deterministic
     assert eval_ds[2].y.item() == config.BOROUGHS.index("SI")
+    # Density is the original vertex count, not the resampled one.
+    assert item.density.item() == pytest.approx(np.log(store.n_points("MN01", 0)))
 
-    model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8)
     batch = next(iter(DataLoader(TileDataset(store, tiles, 128, train=True), batch_size=3)))
-    out = model(batch.pos, batch.batch)
-    assert out.shape == (3, len(config.BOROUGHS))
+    assert batch.density.shape == (3, 1)
+    for use_density in (True, False):
+        model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8, use_density=use_density)
+        out = model(batch.pos, batch.batch, batch.density)
+        assert out.shape == (3, len(config.BOROUGHS))
