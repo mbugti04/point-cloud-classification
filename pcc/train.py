@@ -37,7 +37,9 @@ class TrainConfig:
     dims: tuple[int, ...] = (32, 64, 128, 256, 512)
     k: int = 16
     rotate: bool = True
-    use_density: bool = True
+    height_scale: float | None = None
+    density: bool = False
+    tile_stats: bool = False
     shuffle_labels: bool = False
     max_tiles_per_split: int | None = None
     num_workers: int = 0
@@ -71,7 +73,7 @@ def predict(model, loader, device, theta: float = 0.0) -> tuple[np.ndarray, np.n
     for batch in loader:
         batch = batch.to(device)
         pos = rotate_z(batch.pos, theta) if theta else batch.pos
-        out = model(pos, batch.batch, batch.density)
+        out = model(pos, batch.batch, batch.get("extra"))
         total_loss += F.nll_loss(out, batch.y, reduction="sum").item()
         preds.append(out.argmax(dim=1).cpu().numpy())
         labels.append(batch.y.cpu().numpy())
@@ -92,10 +94,11 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
     num_classes = len(config.BOROUGHS)
 
     tiles = {k: _subset(v, cfg.max_tiles_per_split, seed) for k, v in splits["tiles"].items()}
+    inputs = dict(height_scale=cfg.height_scale, density=cfg.density, tile_stats=cfg.tile_stats)
     train_ds = TileDataset(store, tiles["train"], cfg.num_points, train=True, seed=seed,
-                           rotate=cfg.rotate, shuffle_labels=cfg.shuffle_labels)
-    val_ds = TileDataset(store, tiles["val"], cfg.num_points, train=False, seed=seed)
-    test_ds = TileDataset(store, tiles["test"], cfg.num_points, train=False, seed=seed)
+                           rotate=cfg.rotate, shuffle_labels=cfg.shuffle_labels, **inputs)
+    val_ds = TileDataset(store, tiles["val"], cfg.num_points, train=False, seed=seed, **inputs)
+    test_ds = TileDataset(store, tiles["test"], cfg.num_points, train=False, seed=seed, **inputs)
 
     generator = torch.Generator().manual_seed(seed)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True,
@@ -107,10 +110,12 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
     counts = train_ds.class_counts(num_classes)
     weights = torch.tensor(counts.sum() / np.maximum(counts, 1) / num_classes, dtype=torch.float, device=device)
 
-    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, cfg.use_density)
-    if cfg.use_density:
-        log_n = np.log([store.n_points(d, i) for d, i in tiles["train"]])
-        model.set_density_stats(float(log_n.mean()), float(log_n.std()) or 1.0)
+    extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
+    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim)
+    if extra_dim:
+        std = train_ds.extra.std(axis=0)
+        model.set_extra_stats(torch.from_numpy(train_ds.extra.mean(axis=0)),
+                              torch.from_numpy(np.where(std > 0, std, 1.0).astype(np.float32)))
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.lr_step, gamma=cfg.lr_gamma)
@@ -127,7 +132,7 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
         for batch in train_loader:
             batch = batch.to(device)
             optimizer.zero_grad()
-            loss = F.nll_loss(model(batch.pos, batch.batch, batch.density), batch.y, weight=weights)
+            loss = F.nll_loss(model(batch.pos, batch.batch, batch.get("extra")), batch.y, weight=weights)
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * batch.num_graphs

@@ -107,19 +107,28 @@ def test_dataset_and_model_shapes(tiny_tiles):
     assert item.pos.shape == (128, 3)
     assert torch.equal(item.pos, eval_ds[0].pos)  # eval sampling is deterministic
     assert eval_ds[2].y.item() == config.BOROUGHS.index("SI")
-    # Density is the original vertex count, not the resampled one.
-    assert item.density.item() == pytest.approx(np.log(store.n_points("MN01", 0)))
+    assert "extra" not in item
 
-    batch = next(iter(DataLoader(TileDataset(store, tiles, 128, train=True), batch_size=3)))
-    assert batch.density.shape == (3, 1)
-    for use_density in (True, False):
-        model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8, use_density=use_density)
-        out = model(batch.pos, batch.batch, batch.density)
+    # Heights are scaled separately from x and y.
+    scaled = TileDataset(store, tiles, 128, train=False, height_scale=25.0)[0]
+    torch.testing.assert_close(scaled.pos[:, 2], item.pos[:, 2] * store.tile_size / 2 / 25.0)
+
+    # Extra per-tile features: log vertex count (from the original count, not
+    # the resampled one) followed by the 8 height statistics.
+    hybrid = TileDataset(store, tiles, 128, train=True, density=True, tile_stats=True)
+    assert hybrid[0].extra.shape == (1, 9)
+    assert hybrid[0].extra[0, 0].item() == pytest.approx(np.log(store.n_points("MN01", 0)))
+
+    for ds, extra_dim in ((TileDataset(store, tiles, 128, train=True), 0), (hybrid, 9)):
+        batch = next(iter(DataLoader(ds, batch_size=3)))
+        model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8, extra_dim=extra_dim)
+        out = model(batch.pos, batch.batch, batch.get("extra"))
         assert out.shape == (3, len(config.BOROUGHS))
 
 
 def test_rotation_only_changes_direction_dependent_features():
-    from pcc.baseline import FEATURE_NAMES, rotate_z, tile_features
+    from pcc.baseline import rotate_z
+    from pcc.features import FEATURE_NAMES, tile_features
 
     rng = np.random.default_rng(0)
     points = rng.uniform([-125, -20, 0], [125, 20, 40], size=(500, 3))  # long in x
