@@ -9,11 +9,16 @@ randomly rotated tiles, to show where its accuracy comes from and so which
 signal the Point Transformer is failing to pick up.
 """
 
+import warnings
 from pathlib import Path
 
 import numpy as np
 from sklearn.dummy import DummyClassifier
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_sample_weight
 
 from . import config
 from .data import TileStore
@@ -48,6 +53,21 @@ def fit_score(X_train, y_train, X_test, y_test) -> dict:
     return {**summarize([test]), "confusion_matrix": test["confusion_matrix"]}
 
 
+def mlp_fit_score(X_train, y_train, X_test, y_test, seeds=(0, 1, 2)) -> dict:
+    """A small neural network on the same features, class-balanced like the others."""
+    scaler = StandardScaler().fit(X_train)
+    weights = compute_sample_weight("balanced", y_train)
+    per_seed = []
+    for seed in seeds:
+        clf = MLPClassifier(hidden_layer_sizes=(64, 64), max_iter=500, random_state=seed)
+        with warnings.catch_warnings():
+            # A fixed iteration budget is fine here; the loss is still creeping down at the end.
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            clf.fit(scaler.transform(X_train), y_train, sample_weight=weights)
+        per_seed.append(classification_metrics(y_test, clf.predict(scaler.transform(X_test))))
+    return summarize(per_seed)
+
+
 def comparison_table(results: dict) -> str:
     rows = ["### Baselines, test set", "",
             "| model | balanced accuracy | macro-F1 | " + " | ".join(config.BOROUGHS) + " |",
@@ -67,6 +87,7 @@ def run(tiles_dir: Path, splits_path: Path, out_dir: Path) -> dict:
     # Val is not needed for tuning here, so it joins train.
     train_tiles = splits["tiles"]["train"] + splits["tiles"]["val"]
     X_train, y_train = featurize(store, train_tiles)
+    n_train_only = len(splits["tiles"]["train"])  # the train split comes first
     X_test, y_test = featurize(store, splits["tiles"]["test"])
 
     results = {}
@@ -87,6 +108,18 @@ def run(tiles_dir: Path, splits_path: Path, out_dir: Path) -> dict:
     X_train_rot, _ = featurize(store, train_tiles, np.random.default_rng(0))
     X_test_rot, _ = featurize(store, splits["tiles"]["test"], np.random.default_rng(1))
     results["gb_rotated_tiles"] = fit_score(X_train_rot, y_train, X_test_rot, y_test)
+
+    # The Point Transformer never trains on val (it picks its checkpoint
+    # there), so these match its training data exactly.
+    only = slice(n_train_only)
+    height = columns(keep=FEATURE_GROUPS["height"])
+    results["gb_train_only"] = fit_score(X_train[only], y_train[only], X_test, y_test)
+    results["gb_height_only_train_only"] = fit_score(X_train[only][:, height], y_train[only], X_test[:, height], y_test)
+
+    # A neural network on the 8 height statistics: if it matches gradient
+    # boosting, the Point Transformer's gap is not about neural nets per se.
+    results["mlp_height_only"] = mlp_fit_score(X_train[:, height], y_train, X_test[:, height], y_test)
+    results["mlp_height_only_train_only"] = mlp_fit_score(X_train[only][:, height], y_train[only], X_test[:, height], y_test)
 
     write_json(out_dir / "summary.json", results)
     md = comparison_table(results) + "\n" + "".join(
