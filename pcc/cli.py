@@ -43,7 +43,8 @@ def _train(args):
         tiles_dir=str(args.tiles_dir), splits_path=str(args.splits), out_dir=str(args.out),
         seeds=args.seeds, epochs=args.epochs, batch_size=args.batch_size, num_points=args.num_points,
         lr=args.lr, rotate=not args.no_rotate, height_scale=args.height_scale,
-        density=args.density, tile_stats=args.tile_stats, shuffle_labels=args.shuffle_labels,
+        density=args.density, tile_stats=args.tile_stats, dims=tuple(args.dims), dropout=args.dropout,
+        weight_decay=args.weight_decay, balance_districts=args.balance_districts, shuffle_labels=args.shuffle_labels,
         max_tiles_per_split=args.max_tiles_per_split, num_workers=args.num_workers, device=args.device,
     )
     run(cfg)
@@ -110,6 +111,12 @@ def main(argv=None):
     p.add_argument("--density", action="store_true", help="also give the model the tile's log vertex count")
     p.add_argument("--tile-stats", action="store_true",
                    help="hybrid: also give the model the tile's height statistics from the baseline")
+    p.add_argument("--dims", type=int, nargs="+", default=[32, 64, 128, 256, 512],
+                   help="feature width at each level; fewer or smaller levels make a smaller network")
+    p.add_argument("--dropout", type=float, default=0.0, help="dropout in the classifier head")
+    p.add_argument("--weight-decay", type=float, default=0.0, help="AdamW weight decay")
+    p.add_argument("--balance-districts", action="store_true",
+                   help="sample every training district equally often")
     p.add_argument("--shuffle-labels", action="store_true",
                    help="sanity check: train on shuffled labels; test scores should drop to chance")
     p.add_argument("--max-tiles-per-split", type=int, help="cap tiles per split, for quick smoke tests")

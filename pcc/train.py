@@ -7,12 +7,14 @@ the test set is scored exactly once, with that checkpoint.
 import math
 import random
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.data import WeightedRandomSampler
 from torch_geometric.loader import DataLoader
 
 from . import config
@@ -40,6 +42,9 @@ class TrainConfig:
     height_scale: float | None = None
     density: bool = False
     tile_stats: bool = False
+    dropout: float = 0.0
+    weight_decay: float = 0.0
+    balance_districts: bool = False
     shuffle_labels: bool = False
     max_tiles_per_split: int | None = None
     num_workers: int = 0
@@ -101,23 +106,33 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
     test_ds = TileDataset(store, tiles["test"], cfg.num_points, train=False, seed=seed, **inputs)
 
     generator = torch.Generator().manual_seed(seed)
-    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True,
-                              num_workers=cfg.num_workers, generator=generator)
+    if cfg.balance_districts:
+        # Every district contributes equally per epoch, so large districts
+        # can't dominate what the model learns about their borough.
+        per_district = Counter(d for d, _ in train_ds.tiles)
+        sample_weights = np.array([1 / per_district[d] for d, _ in train_ds.tiles])
+        sampler = WeightedRandomSampler(sample_weights, len(train_ds), generator=generator)
+        train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, sampler=sampler, num_workers=cfg.num_workers)
+    else:
+        sample_weights = np.ones(len(train_ds))
+        train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True,
+                                  num_workers=cfg.num_workers, generator=generator)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size, num_workers=cfg.num_workers)
     test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, num_workers=cfg.num_workers)
 
-    # Weight classes by inverse training frequency so big boroughs don't dominate.
-    counts = train_ds.class_counts(num_classes)
+    # Weight classes by inverse frequency (as sampled) so big boroughs don't dominate.
+    counts = np.bincount(train_ds.labels, weights=sample_weights, minlength=num_classes)
     weights = torch.tensor(counts.sum() / np.maximum(counts, 1) / num_classes, dtype=torch.float, device=device)
 
     extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
-    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim)
+    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim, dropout=cfg.dropout)
     if extra_dim:
         std = train_ds.extra.std(axis=0)
         model.set_extra_stats(torch.from_numpy(train_ds.extra.mean(axis=0)),
                               torch.from_numpy(np.where(std > 0, std, 1.0).astype(np.float32)))
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    # AdamW with weight_decay=0 is the same as Adam.
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.lr_step, gamma=cfg.lr_gamma)
 
     seed_dir = out_dir / f"seed_{seed}"

@@ -108,6 +108,3 @@ class TileDataset(Dataset):
         if self.extra is not None:
             data.extra = torch.from_numpy(self.extra[idx:idx + 1])
         return data
-
-    def class_counts(self, num_classes: int) -> np.ndarray:
-        return np.bincount(self.labels, minlength=num_classes)

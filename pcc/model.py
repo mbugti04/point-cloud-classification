@@ -62,7 +62,7 @@ class PointTransformerClassifier(torch.nn.Module):
     """
 
     def __init__(self, num_classes: int, dims: tuple[int, ...] = (32, 64, 128, 256, 512), k: int = 16,
-                 extra_dim: int = 0, extra_hidden: int = 32):
+                 extra_dim: int = 0, extra_hidden: int = 32, dropout: float = 0.0):
         super().__init__()
         self.k = k
         self.extra_dim = extra_dim
@@ -80,7 +80,7 @@ class PointTransformerClassifier(torch.nn.Module):
             self.register_buffer("extra_std", torch.ones(extra_dim))
             self.extra_mlp = MLP([extra_dim, extra_hidden], norm=None, plain_last=False)
             head_in += extra_hidden
-        self.mlp_output = MLP([head_in, 64, num_classes], norm=None)
+        self.mlp_output = MLP([head_in, 64, num_classes], norm=None, dropout=dropout)
 
     def set_extra_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         self.extra_mean.copy_(mean)
