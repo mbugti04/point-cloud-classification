@@ -22,7 +22,7 @@ from sklearn.utils.class_weight import compute_sample_weight
 
 from . import config
 from .data import TileStore
-from .features import FEATURE_GROUPS, columns, tile_features
+from .features import FEATURE_GROUPS, building_features, columns, tile_features
 from .metrics import classification_metrics, format_summary, summarize, write_json
 from .splits import load_splits
 
@@ -80,7 +80,11 @@ def comparison_table(results: dict) -> str:
     return "\n".join(rows) + "\n"
 
 
-def run(tiles_dir: Path, splits_path: Path, out_dir: Path) -> dict:
+def featurize_buildings(store, tiles: list) -> np.ndarray:
+    return np.stack([building_features(store.tokens(d, i), store.tile_size) for d, i in tiles])
+
+
+def run(tiles_dir: Path, splits_path: Path, out_dir: Path, building_tiles_dir: Path | None = None) -> dict:
     splits = load_splits(splits_path)
     districts = {d for split in splits["tiles"].values() for d, _ in split}
     store = TileStore(tiles_dir, districts)
@@ -120,6 +124,19 @@ def run(tiles_dir: Path, splits_path: Path, out_dir: Path) -> dict:
     # boosting, the Point Transformer's gap is not about neural nets per se.
     results["mlp_height_only"] = mlp_fit_score(X_train[:, height], y_train, X_test[:, height], y_test)
     results["mlp_height_only_train_only"] = mlp_fit_score(X_train[only][:, height], y_train[only], X_test[:, height], y_test)
+
+    if building_tiles_dir is not None:
+        # The same building features the building transformer sees, summarized
+        # per tile. The transformer only adds something if it beats these.
+        from .buildings import BuildingStore
+
+        bstore = BuildingStore(building_tiles_dir, districts)
+        B_train = featurize_buildings(bstore, train_tiles)
+        B_test = featurize_buildings(bstore, splits["tiles"]["test"])
+        results["gb_buildings"] = fit_score(B_train, y_train, B_test, y_test)
+        results["gb_buildings_train_only"] = fit_score(B_train[only], y_train[only], B_test, y_test)
+        results["gb_buildings_plus_points"] = fit_score(
+            np.hstack([B_train, X_train]), y_train, np.hstack([B_test, X_test]), y_test)
 
     write_json(out_dir / "summary.json", results)
     md = comparison_table(results) + "\n" + "".join(

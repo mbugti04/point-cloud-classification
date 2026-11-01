@@ -1,4 +1,5 @@
-"""Train and evaluate the Point Transformer over several seeds.
+"""Train and evaluate a model over several seeds: the Point Transformer on
+point tiles, or the building transformer on building tiles.
 
 For each seed the checkpoint with the best validation macro-F1 is kept, and
 the test set is scored exactly once, with that checkpoint.
@@ -18,15 +19,21 @@ from torch.utils.data import WeightedRandomSampler
 from torch_geometric.loader import DataLoader
 
 from . import config
-from .data import TileDataset, TileStore
+from .buildings import BuildingStore
+from .data import BuildingTileDataset, TileDataset, TileStore
 from .metrics import classification_metrics, format_summary, summarize, write_json
-from .model import PointTransformerClassifier
+from .model import BuildingTransformer, PointTransformerClassifier
 from .splits import load_splits
+
+
+MODELS = ("point-transformer", "building-transformer")
 
 
 @dataclass
 class TrainConfig:
+    model: str = "point-transformer"
     tiles_dir: str = str(config.TILES_DIR)
+    building_tiles_dir: str = str(config.BUILDING_TILES_DIR)
     splits_path: str = str(config.SPLITS_PATH)
     out_dir: str = str(config.RUNS_DIR / "pct")
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2])
@@ -45,6 +52,11 @@ class TrainConfig:
     dropout: float = 0.0
     weight_decay: float = 0.0
     balance_districts: bool = False
+    # building-transformer only
+    width: int = 64
+    layers: int = 3
+    heads: int = 4
+    max_buildings: int = 512
     shuffle_labels: bool = False
     max_tiles_per_split: int | None = None
     num_workers: int = 0
@@ -77,8 +89,9 @@ def predict(model, loader, device, theta: float = 0.0) -> tuple[np.ndarray, np.n
     preds, labels, total_loss = [], [], 0.0
     for batch in loader:
         batch = batch.to(device)
-        pos = rotate_z(batch.pos, theta) if theta else batch.pos
-        out = model(pos, batch.batch, batch.get("extra"))
+        if theta:
+            batch.pos = rotate_z(batch.pos, theta)
+        out = model(batch)
         total_loss += F.nll_loss(out, batch.y, reduction="sum").item()
         preds.append(out.argmax(dim=1).cpu().numpy())
         labels.append(batch.y.cpu().numpy())
@@ -93,17 +106,46 @@ def _subset(tiles: list, limit: int | None, seed: int) -> list:
     return [tiles[i] for i in sorted(idx)]
 
 
-def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, out_dir: Path) -> dict:
+def _std(values: np.ndarray) -> torch.Tensor:
+    std = values.std(axis=0)
+    return torch.from_numpy(np.where(std > 0, std, 1.0).astype(np.float32))
+
+
+def make_datasets(cfg: TrainConfig, store, tiles: dict, seed: int) -> tuple:
+    if cfg.model == "building-transformer":
+        common = dict(seed=seed, height_scale=cfg.height_scale or 30.0, max_buildings=cfg.max_buildings)
+        return (BuildingTileDataset(store, tiles["train"], train=True, rotate=cfg.rotate,
+                                    shuffle_labels=cfg.shuffle_labels, **common),
+                BuildingTileDataset(store, tiles["val"], train=False, **common),
+                BuildingTileDataset(store, tiles["test"], train=False, **common))
+    inputs = dict(height_scale=cfg.height_scale, density=cfg.density, tile_stats=cfg.tile_stats)
+    return (TileDataset(store, tiles["train"], cfg.num_points, train=True, seed=seed,
+                        rotate=cfg.rotate, shuffle_labels=cfg.shuffle_labels, **inputs),
+            TileDataset(store, tiles["val"], cfg.num_points, train=False, seed=seed, **inputs),
+            TileDataset(store, tiles["test"], cfg.num_points, train=False, seed=seed, **inputs))
+
+
+def make_model(cfg: TrainConfig, train_ds, num_classes: int) -> torch.nn.Module:
+    """Build the model, with feature standardization taken from the training tiles."""
+    if cfg.model == "building-transformer":
+        features = train_ds.all_features()
+        model = BuildingTransformer(num_classes, features.shape[1], cfg.width, cfg.layers, cfg.heads, cfg.dropout)
+        model.set_feature_stats(torch.from_numpy(features.mean(axis=0)), _std(features))
+        return model
+    extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
+    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim, dropout=cfg.dropout)
+    if extra_dim:
+        model.set_extra_stats(torch.from_numpy(train_ds.extra.mean(axis=0)), _std(train_ds.extra))
+    return model
+
+
+def train_one_seed(cfg: TrainConfig, seed: int, store, splits: dict, out_dir: Path) -> dict:
     set_seed(seed)
     device = resolve_device(cfg.device)
     num_classes = len(config.BOROUGHS)
 
     tiles = {k: _subset(v, cfg.max_tiles_per_split, seed) for k, v in splits["tiles"].items()}
-    inputs = dict(height_scale=cfg.height_scale, density=cfg.density, tile_stats=cfg.tile_stats)
-    train_ds = TileDataset(store, tiles["train"], cfg.num_points, train=True, seed=seed,
-                           rotate=cfg.rotate, shuffle_labels=cfg.shuffle_labels, **inputs)
-    val_ds = TileDataset(store, tiles["val"], cfg.num_points, train=False, seed=seed, **inputs)
-    test_ds = TileDataset(store, tiles["test"], cfg.num_points, train=False, seed=seed, **inputs)
+    train_ds, val_ds, test_ds = make_datasets(cfg, store, tiles, seed)
 
     generator = torch.Generator().manual_seed(seed)
     if cfg.balance_districts:
@@ -124,13 +166,7 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
     counts = np.bincount(train_ds.labels, weights=sample_weights, minlength=num_classes)
     weights = torch.tensor(counts.sum() / np.maximum(counts, 1) / num_classes, dtype=torch.float, device=device)
 
-    extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
-    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim, dropout=cfg.dropout)
-    if extra_dim:
-        std = train_ds.extra.std(axis=0)
-        model.set_extra_stats(torch.from_numpy(train_ds.extra.mean(axis=0)),
-                              torch.from_numpy(np.where(std > 0, std, 1.0).astype(np.float32)))
-    model = model.to(device)
+    model = make_model(cfg, train_ds, num_classes).to(device)
     # AdamW with weight_decay=0 is the same as Adam.
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.lr_step, gamma=cfg.lr_gamma)
@@ -147,7 +183,7 @@ def train_one_seed(cfg: TrainConfig, seed: int, store: TileStore, splits: dict, 
         for batch in train_loader:
             batch = batch.to(device)
             optimizer.zero_grad()
-            loss = F.nll_loss(model(batch.pos, batch.batch, batch.get("extra")), batch.y, weight=weights)
+            loss = F.nll_loss(model(batch), batch.y, weight=weights)
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * batch.num_graphs
@@ -198,14 +234,20 @@ def run(cfg: TrainConfig) -> dict:
     out_dir = Path(cfg.out_dir)
     splits = load_splits(Path(cfg.splits_path))
     districts = {d for split in splits["tiles"].values() for d, _ in split}
-    store = TileStore(Path(cfg.tiles_dir), districts)
+    if cfg.model not in MODELS:
+        raise ValueError(f"Unknown model {cfg.model!r}; choose from {MODELS}")
+    if cfg.model == "building-transformer":
+        store = BuildingStore(Path(cfg.building_tiles_dir), districts)
+    else:
+        store = TileStore(Path(cfg.tiles_dir), districts)
     write_json(out_dir / "config.json", {**asdict(cfg), "split_seed": splits["seed"],
                                          "split_sizes": {k: len(v) for k, v in splits["tiles"].items()}})
 
     per_seed = [train_one_seed(cfg, seed, store, splits, out_dir) for seed in cfg.seeds]
     summary = summarize(per_seed)
     write_json(out_dir / "summary.json", summary)
-    md = format_summary(f"Point Transformer, test set{' (SHUFFLED LABELS)' if cfg.shuffle_labels else ''}", summary)
+    name = "Building transformer" if cfg.model == "building-transformer" else "Point Transformer"
+    md = format_summary(f"{name}, test set{' (SHUFFLED LABELS)' if cfg.shuffle_labels else ''}", summary)
     (out_dir / "summary.md").write_text(md)
     print("\n" + md)
     return summary

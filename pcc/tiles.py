@@ -22,6 +22,15 @@ def height_above_ground(xyz: np.ndarray, ground: np.ndarray) -> np.ndarray:
     return xyz[:, 2] - ground[idx, 2]
 
 
+def cell_of(xy: np.ndarray, tile_size: float) -> np.ndarray:
+    """Citywide grid cell (i, j) containing each xy point."""
+    return np.floor(xy / tile_size).astype(np.int64)
+
+
+def cell_center(ij: np.ndarray, tile_size: float) -> np.ndarray:
+    return (np.asarray(ij, dtype=np.float64) + 0.5) * tile_size
+
+
 def tile_district(
     xyz: np.ndarray,
     ground: np.ndarray,
@@ -41,7 +50,7 @@ def tile_district(
     `max_points` are randomly subsampled to bound file size.
     """
     height = height_above_ground(xyz, ground)
-    cell = np.floor(xyz[:, :2] / tile_size).astype(np.int64)
+    cell = cell_of(xyz[:, :2], tile_size)
 
     order = np.lexsort((cell[:, 1], cell[:, 0]))
     cell, xyz, height = cell[order], xyz[order], height[order]
@@ -53,7 +62,7 @@ def tile_district(
         n = e - s
         if n < min_points:
             continue
-        center = (cell[s] + 0.5) * tile_size
+        center = cell_center(cell[s], tile_size)
         local = np.column_stack([xyz[s:e, 0] - center[0], xyz[s:e, 1] - center[1], height[s:e]])
         if n > max_points:
             local = local[np.sort(rng.choice(n, max_points, replace=False))]

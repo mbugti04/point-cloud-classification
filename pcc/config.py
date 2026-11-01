@@ -25,6 +25,8 @@ RAW_DIR = DATA_DIR / "raw"
 INTERIM_DIR = DATA_DIR / "interim"
 TILES_DIR = DATA_DIR / "tiles"
 SPLITS_PATH = DATA_DIR / "splits.json"
+BUILDINGS_INTERIM_DIR = DATA_DIR / "interim_buildings"
+BUILDING_TILES_DIR = DATA_DIR / "building_tiles"
 RUNS_DIR = Path("runs")
 
 

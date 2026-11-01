@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Linear
 from torch_geometric.nn import MLP, PointTransformerConv, fps, global_mean_pool, knn, knn_graph
-from torch_geometric.utils import scatter
+from torch_geometric.utils import scatter, to_dense_batch
 
 
 class TransformerBlock(torch.nn.Module):
@@ -86,7 +86,8 @@ class PointTransformerClassifier(torch.nn.Module):
         self.extra_mean.copy_(mean)
         self.extra_std.copy_(std)
 
-    def forward(self, pos, batch, extra=None):
+    def forward(self, data):
+        pos, batch, extra = data.pos, data.batch, data.get("extra")
         x = self.mlp_input(pos)
         edge_index = knn_graph(pos, k=self.k, batch=batch)
         x = self.transformer_input(x, pos, edge_index)
@@ -99,3 +100,38 @@ class PointTransformerClassifier(torch.nn.Module):
             extra = (extra - self.extra_mean) / self.extra_std
             x = torch.cat([x, self.extra_mlp(extra)], dim=1)
         return F.log_softmax(self.mlp_output(x), dim=-1)
+
+
+class BuildingTransformer(torch.nn.Module):
+    """Transformer encoder over the buildings of a tile.
+
+    Each building is one token: its local position and height (`pos`) plus
+    shape features (`x`, standardized with training-set statistics stored in
+    the checkpoint). There is no positional encoding beyond the position
+    itself, since a tile's buildings have no order. A learned [CLS] token,
+    never masked, reads out the tile, so tiles with no buildings still work.
+    """
+
+    def __init__(self, num_classes: int, feature_dim: int, width: int = 64, layers: int = 3, heads: int = 4,
+                 dropout: float = 0.1):
+        super().__init__()
+        self.register_buffer("x_mean", torch.zeros(feature_dim))
+        self.register_buffer("x_std", torch.ones(feature_dim))
+        self.embed = MLP([3 + feature_dim, width, width], norm=None)
+        self.cls = torch.nn.Parameter(torch.zeros(1, 1, width))
+        layer = torch.nn.TransformerEncoderLayer(width, heads, 2 * width, dropout, batch_first=True, norm_first=True)
+        self.encoder = torch.nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.norm = torch.nn.LayerNorm(width)
+        self.head = MLP([width, 64, num_classes], norm=None, dropout=dropout)
+
+    def set_feature_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        self.x_mean.copy_(mean)
+        self.x_std.copy_(std)
+
+    def forward(self, data):
+        tokens = self.embed(torch.cat([data.pos, (data.x - self.x_mean) / self.x_std], dim=1))
+        dense, mask = to_dense_batch(tokens, data.batch, batch_size=data.num_graphs)
+        seq = torch.cat([self.cls.expand(dense.size(0), -1, -1), dense], dim=1)
+        padding = torch.cat([mask.new_zeros(dense.size(0), 1), ~mask], dim=1)
+        out = self.encoder(seq, src_key_padding_mask=padding)
+        return F.log_softmax(self.head(self.norm(out[:, 0])), dim=-1)

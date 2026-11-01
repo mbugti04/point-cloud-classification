@@ -10,7 +10,9 @@ def _download(args):
     from .download import download_all
 
     districts = [d.upper() for d in args.districts] if args.districts else config.DISTRICTS
-    download_all(districts, args.raw_dir, args.interim_dir, keep_raw=args.keep_raw)
+    interim_dir = args.interim_dir if args.what in ("both", "vertices") else None
+    buildings_dir = args.buildings_dir if args.what in ("both", "buildings") else None
+    download_all(districts, args.raw_dir, interim_dir, keep_raw=args.keep_raw, buildings_dir=buildings_dir)
 
 
 def _tile(args):
@@ -21,6 +23,15 @@ def _tile(args):
     for district, n in counts.items():
         by_borough[config.borough_of(district)] = by_borough.get(config.borough_of(district), 0) + n
     print(f"{sum(counts.values())} tiles from {len(counts)} districts: {by_borough}")
+
+
+def _tile_buildings(args):
+    from .buildings import tile_buildings_all
+
+    counts = tile_buildings_all(args.buildings_dir, args.tiles_dir, args.out)
+    n_tiles = sum(t for t, _ in counts.values())
+    n_empty = sum(e for _, e in counts.values())
+    print(f"{n_tiles} building tiles from {len(counts)} districts ({n_empty} with no building centroid inside)")
 
 
 def _split(args):
@@ -40,6 +51,8 @@ def _train(args):
     from .train import TrainConfig, run
 
     cfg = TrainConfig(
+        model=args.model, building_tiles_dir=str(args.building_tiles_dir),
+        width=args.width, layers=args.layers, heads=args.heads, max_buildings=args.max_buildings,
         tiles_dir=str(args.tiles_dir), splits_path=str(args.splits), out_dir=str(args.out),
         seeds=args.seeds, epochs=args.epochs, batch_size=args.batch_size, num_points=args.num_points,
         lr=args.lr, rotate=not args.no_rotate, height_scale=args.height_scale,
@@ -53,7 +66,7 @@ def _train(args):
 def _baseline(args):
     from .baseline import run
 
-    run(args.tiles_dir, args.splits, args.out)
+    run(args.tiles_dir, args.splits, args.out, args.building_tiles_dir)
 
 
 def _card(args):
@@ -74,10 +87,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="pcc", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("download", help="download districts and extract vertices")
+    p = sub.add_parser("download", help="download districts and extract vertices and buildings")
     p.add_argument("--districts", nargs="*", help="e.g. MN01 BX02 (default: all 59)")
     p.add_argument("--raw-dir", type=Path, default=config.RAW_DIR)
     p.add_argument("--interim-dir", type=Path, default=config.INTERIM_DIR)
+    p.add_argument("--buildings-dir", type=Path, default=config.BUILDINGS_INTERIM_DIR)
+    p.add_argument("--what", choices=["both", "vertices", "buildings"], default="both",
+                   help="which extraction to run (buildings alone skips the slower vertex pass)")
     p.add_argument("--keep-raw", action="store_true", help="keep the downloaded zips")
     p.set_defaults(func=_download)
 
@@ -90,14 +106,22 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=_tile)
 
+    p = sub.add_parser("tile-buildings", help="group buildings into the same tiles as the point tiles")
+    p.add_argument("--buildings-dir", type=Path, default=config.BUILDINGS_INTERIM_DIR)
+    p.add_argument("--tiles-dir", type=Path, default=config.TILES_DIR, help="point tiles whose grid to reuse")
+    p.add_argument("--out", type=Path, default=config.BUILDING_TILES_DIR)
+    p.set_defaults(func=_tile_buildings)
+
     p = sub.add_parser("split", help="assign districts to train/val/test")
     p.add_argument("--tiles-dir", type=Path, default=config.TILES_DIR)
     p.add_argument("--out", type=Path, default=config.SPLITS_PATH)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=_split)
 
-    p = sub.add_parser("train", help="train the Point Transformer over several seeds")
+    p = sub.add_parser("train", help="train a model over several seeds")
+    p.add_argument("--model", choices=["point-transformer", "building-transformer"], default="point-transformer")
     p.add_argument("--tiles-dir", type=Path, default=config.TILES_DIR)
+    p.add_argument("--building-tiles-dir", type=Path, default=config.BUILDING_TILES_DIR)
     p.add_argument("--splits", type=Path, default=config.SPLITS_PATH)
     p.add_argument("--out", type=Path, default=config.RUNS_DIR / "pct")
     p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
@@ -112,8 +136,13 @@ def main(argv=None):
     p.add_argument("--tile-stats", action="store_true",
                    help="hybrid: also give the model the tile's height statistics from the baseline")
     p.add_argument("--dims", type=int, nargs="+", default=[32, 64, 128, 256, 512],
-                   help="feature width at each level; fewer or smaller levels make a smaller network")
-    p.add_argument("--dropout", type=float, default=0.0, help="dropout in the classifier head")
+                   help="point transformer: feature width at each level")
+    p.add_argument("--width", type=int, default=64, help="building transformer: token width")
+    p.add_argument("--layers", type=int, default=3, help="building transformer: encoder layers")
+    p.add_argument("--heads", type=int, default=4, help="building transformer: attention heads")
+    p.add_argument("--max-buildings", type=int, default=512, help="building transformer: tokens per tile")
+    p.add_argument("--dropout", type=float, default=0.0,
+                   help="dropout in the classifier head (and the encoder, for the building transformer)")
     p.add_argument("--weight-decay", type=float, default=0.0, help="AdamW weight decay")
     p.add_argument("--balance-districts", action="store_true",
                    help="sample every training district equally often")
@@ -128,6 +157,8 @@ def main(argv=None):
     p.add_argument("--tiles-dir", type=Path, default=config.TILES_DIR)
     p.add_argument("--splits", type=Path, default=config.SPLITS_PATH)
     p.add_argument("--out", type=Path, default=config.RUNS_DIR / "baseline")
+    p.add_argument("--building-tiles-dir", type=Path,
+                   help="also fit gradient boosting on per-tile aggregates of building features")
     p.set_defaults(func=_baseline)
 
     p = sub.add_parser("card", help="render the dataset card locally for review")

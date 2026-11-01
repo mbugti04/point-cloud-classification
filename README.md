@@ -103,6 +103,20 @@ uv run pcc tile && uv run pcc split
 uv run pcc train --seeds 0 --epochs 2 --max-tiles-per-split 64
 ```
 
+### Building transformer
+
+A second model treats each building as one token (local position, height,
+footprint area, compactness, roof levels, distance to the nearest building)
+and runs a transformer encoder over the buildings of a tile. Building tiles
+reuse the point tiles' grid and indices, so the same `splits.json` applies.
+
+```bash
+uv run pcc download --what buildings    # skip if `pcc download` already ran (it extracts both)
+uv run pcc tile-buildings               # writes data/building_tiles/, needs data/tiles/
+uv run pcc baseline --building-tiles-dir data/building_tiles   # adds gradient boosting on building aggregates
+uv run pcc train --model building-transformer --dropout 0.1 --out runs/buildings
+```
+
 ## Repository layout
 
 ```

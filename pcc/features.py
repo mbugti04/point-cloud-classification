@@ -25,6 +25,27 @@ def tile_features(points: np.ndarray, n_points: int) -> np.ndarray:
     ])
 
 
+BUILDING_FEATURE_NAMES = [
+    "log_n_buildings", "coverage", "bld_height_p10", "bld_height_p50", "bld_height_p90", "bld_height_max",
+    "log_area_p10", "log_area_p50", "log_area_p90", "compactness_p10", "compactness_p50", "compactness_p90",
+    "n_roofs_mean", "roof_range_mean", "log_nn_distance_p50",
+]
+
+
+def building_features(tokens: np.ndarray, tile_size: float) -> np.ndarray:
+    """Aggregates of one tile's building tokens (see `buildings.tile_buildings`). NaN where undefined."""
+    n = len(tokens)
+    if n == 0:
+        return np.array([0.0, 0.0] + [np.nan] * (len(BUILDING_FEATURE_NAMES) - 2))
+    height, log_area, compactness = tokens[:, 2], tokens[:, 3], tokens[:, 4]
+    return np.array([
+        np.log1p(n), np.exp(log_area).sum() / tile_size**2,
+        *np.percentile(height, [10, 50, 90]), height.max(),
+        *np.percentile(log_area, [10, 50, 90]), *np.percentile(compactness, [10, 50, 90]),
+        tokens[:, 6].mean(), tokens[:, 7].mean(), np.median(tokens[:, 8]),
+    ])
+
+
 def columns(drop: list[str] = (), keep: list[str] | None = None) -> list[int]:
     names = keep if keep is not None else [n for n in FEATURE_NAMES if n not in drop]
     return [FEATURE_NAMES.index(n) for n in names]

@@ -108,3 +108,65 @@ class TileDataset(Dataset):
         if self.extra is not None:
             data.extra = torch.from_numpy(self.extra[idx:idx + 1])
         return data
+
+
+class BuildingTileDataset(Dataset):
+    """Each item is one tile as a set of buildings.
+
+    `pos` holds each building's local centroid (divided by half the tile size)
+    and height (divided by `height_scale` meters), so the rotated-test path
+    and rotation augmentation work as for point tiles. `x` holds the other
+    per-building features (see `buildings.TOKEN_FEATURES`). Tiles with more
+    than `max_buildings` buildings are subsampled: randomly in training,
+    deterministically in eval.
+    """
+
+    def __init__(
+        self,
+        store,
+        tiles: list[tuple[str, int]],
+        train: bool,
+        seed: int = 0,
+        rotate: bool = True,
+        shuffle_labels: bool = False,
+        height_scale: float = 30.0,
+        max_buildings: int = 512,
+    ):
+        super().__init__()
+        self.store = store
+        self.tiles = [(d, int(i)) for d, i in tiles]
+        self.train = train
+        self.seed = seed
+        self.rotate = rotate
+        self.max_buildings = max_buildings
+        self.scale = np.array([store.tile_size / 2] * 2 + [height_scale], dtype=np.float32)
+        self.labels = np.array([config.label_of(d) for d, _ in self.tiles])
+        if shuffle_labels:
+            self.labels = np.random.default_rng(seed).permutation(self.labels)
+
+    def len(self) -> int:
+        return len(self.tiles)
+
+    def all_features(self) -> np.ndarray:
+        """Every building's `x` features across the dataset, for standardization."""
+        return np.concatenate([self.store.tokens(d, i)[:, 3:] for d, i in self.tiles])
+
+    def get(self, idx: int) -> Data:
+        district, index = self.tiles[idx]
+        tokens = self.store.tokens(district, index)
+        if self.train:
+            rng = np.random.default_rng(int(torch.randint(0, 2**31 - 1, ()).item()))
+        else:
+            rng = np.random.default_rng([self.seed, idx])
+        if len(tokens) > self.max_buildings:
+            tokens = tokens[np.sort(rng.choice(len(tokens), self.max_buildings, replace=False))]
+        pos = tokens[:, :3] / self.scale
+        if self.train:
+            if self.rotate:
+                theta = rng.uniform(0, 2 * np.pi)
+                c, s = np.cos(theta), np.sin(theta)
+                pos[:, :2] = pos[:, :2] @ np.array([[c, -s], [s, c]], dtype=np.float32)
+            pos = pos + rng.normal(0, 0.005, pos.shape).astype(np.float32)
+        return Data(pos=torch.from_numpy(np.ascontiguousarray(pos, dtype=np.float32)),
+                    x=torch.from_numpy(np.ascontiguousarray(tokens[:, 3:], dtype=np.float32)),
+                    y=torch.tensor([self.labels[idx]]), num_nodes=len(tokens))
