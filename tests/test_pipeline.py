@@ -107,8 +107,112 @@ def test_dataset_and_model_shapes(tiny_tiles):
     assert item.pos.shape == (128, 3)
     assert torch.equal(item.pos, eval_ds[0].pos)  # eval sampling is deterministic
     assert eval_ds[2].y.item() == config.BOROUGHS.index("SI")
+    assert "extra" not in item
 
-    model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8)
-    batch = next(iter(DataLoader(TileDataset(store, tiles, 128, train=True), batch_size=3)))
-    out = model(batch.pos, batch.batch)
-    assert out.shape == (3, len(config.BOROUGHS))
+    # Heights are scaled separately from x and y.
+    scaled = TileDataset(store, tiles, 128, train=False, height_scale=25.0)[0]
+    torch.testing.assert_close(scaled.pos[:, 2], item.pos[:, 2] * store.tile_size / 2 / 25.0)
+
+    # Extra per-tile features: log vertex count (from the original count, not
+    # the resampled one) followed by the 8 height statistics.
+    hybrid = TileDataset(store, tiles, 128, train=True, density=True, tile_stats=True)
+    assert hybrid[0].extra.shape == (1, 9)
+    assert hybrid[0].extra[0, 0].item() == pytest.approx(np.log(store.n_points("MN01", 0)))
+
+    for ds, extra_dim in ((TileDataset(store, tiles, 128, train=True), 0), (hybrid, 9)):
+        batch = next(iter(DataLoader(ds, batch_size=3)))
+        model = PointTransformerClassifier(len(config.BOROUGHS), dims=(16, 32), k=8, extra_dim=extra_dim)
+        out = model(batch)
+        assert out.shape == (3, len(config.BOROUGHS))
+
+
+def test_rotation_only_changes_direction_dependent_features():
+    from pcc.baseline import rotate_z
+    from pcc.features import FEATURE_NAMES, tile_features
+
+    rng = np.random.default_rng(0)
+    points = rng.uniform([-125, -20, 0], [125, 20, 40], size=(500, 3))  # long in x
+    before = tile_features(points, 500)
+    after = tile_features(rotate_z(points, np.pi / 2), 500)
+    changed = {name for name, a, b in zip(FEATURE_NAMES, before, after) if not np.isclose(a, b)}
+    assert changed == {"x_std", "y_std"}
+
+
+def test_polygon_area_and_perimeter():
+    from pcc.buildings import polygon_area_perimeter
+
+    square = np.array([[0, 0], [10, 0], [10, 5], [0, 5]], dtype=float)
+    assert polygon_area_perimeter(square) == pytest.approx((50.0, 30.0))
+
+
+def _fake_buildings(rng, n, lo, hi):
+    return {
+        "centroid": rng.uniform(lo, hi, size=(n, 2)),
+        "height": rng.uniform(3, 40, n), "area": rng.uniform(50, 500, n), "perimeter": rng.uniform(30, 100, n),
+        "n_vertices": rng.integers(4, 12, n).astype(float), "n_roofs": rng.integers(1, 3, n).astype(float),
+        "roof_range": rng.uniform(0, 5, n),
+    }
+
+
+def test_building_tiles_follow_point_tiles_exactly():
+    from pcc.buildings import TOKEN_FEATURES, tile_buildings
+
+    rng = np.random.default_rng(0)
+    # Buildings fill cells (4, 8) and (5, 8); point tiles also include the empty cell (6, 8).
+    buildings = _fake_buildings(rng, 40, [1000, 2000], [1500, 2250])
+    ij = np.array([[5, 8], [6, 8], [4, 8]])  # order as stored in the point tiles
+    tiles = tile_buildings(buildings, ij, tile_size=250)
+
+    counts = np.diff(tiles["offsets"])
+    assert len(counts) == len(ij)
+    assert counts[1] == 0  # empty tile kept, not dropped
+    assert counts.sum() == 40
+    assert tiles["tokens"].shape == (40, 3 + len(TOKEN_FEATURES))
+    assert np.abs(tiles["tokens"][:, :2]).max() <= 125  # local to the tile center
+    first = tiles["tokens"][tiles["offsets"][0]:tiles["offsets"][1]]
+    expected = np.sort(buildings["height"][np.floor(buildings["centroid"][:, 0] / 250) == 5])
+    np.testing.assert_allclose(np.sort(first[:, 2]), expected, rtol=1e-5)
+
+
+def test_building_transformer_handles_empty_tiles(tmp_path):
+    from torch_geometric.loader import DataLoader
+
+    from pcc.buildings import BuildingStore, tile_buildings
+    from pcc.data import BuildingTileDataset, TileStore
+    from pcc.features import BUILDING_FEATURE_NAMES, building_features
+    from pcc.model import BuildingTransformer
+
+    rng = np.random.default_rng(0)
+    ij = np.array([[4, 8], [6, 8]])
+    tiles = tile_buildings(_fake_buildings(rng, 30, [1000, 2000], [1250, 2250]), ij, tile_size=250)
+    np.savez(tmp_path / "MN01.npz", tile_size=250.0, ij=ij, **tiles)
+    store = BuildingStore(tmp_path, {"MN01"})
+
+    ds = BuildingTileDataset(store, [("MN01", 0), ("MN01", 1)], train=True, max_buildings=16)
+    assert ds[0].pos.shape == (16, 3)  # capped
+    assert ds[1].num_nodes == 0
+    feats = ds.all_features()
+    model = BuildingTransformer(len(config.BOROUGHS), feats.shape[1], width=16, layers=1, heads=2)
+    model.set_feature_stats(torch.from_numpy(feats.mean(0)), torch.from_numpy(feats.std(0)))
+    model.eval()
+    out = model(next(iter(DataLoader(ds, batch_size=2))))  # empty tile last
+    assert out.shape == (2, len(config.BOROUGHS))
+    assert torch.isfinite(out).all()
+
+    # Height statistics from the point tiles join the [CLS] output, even for the empty tile.
+    points = np.random.default_rng(1).uniform(0, 30, (600, 3)).astype(np.float32)
+    np.savez(tmp_path / "points.npz", tile_size=250.0, ij=ij, points=points, offsets=np.array([0, 300, 600]),
+             n_points=np.array([300, 300]))
+    (tmp_path / "pts").mkdir()
+    (tmp_path / "points.npz").rename(tmp_path / "pts" / "MN01.npz")
+    hybrid_store = BuildingStore(tmp_path, {"MN01"}, TileStore(tmp_path / "pts", {"MN01"}))
+    hybrid = BuildingTileDataset(hybrid_store, [("MN01", 0), ("MN01", 1)], train=False, tile_stats=True)
+    model = BuildingTransformer(len(config.BOROUGHS), feats.shape[1], width=16, layers=1, heads=2,
+                                extra_dim=hybrid.extra.shape[1])
+    model.set_extra_stats(torch.from_numpy(hybrid.extra.mean(0)), torch.from_numpy(hybrid.extra.std(0) + 1e-6))
+    model.eval()
+    out = model(next(iter(DataLoader(hybrid, batch_size=2))))
+    assert out.shape == (2, len(config.BOROUGHS)) and torch.isfinite(out).all()
+
+    empty = building_features(store.tokens("MN01", 1), 250.0)
+    assert len(empty) == len(BUILDING_FEATURE_NAMES) and empty[0] == 0

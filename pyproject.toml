@@ -12,7 +12,7 @@ dependencies = [
     "torch-cluster==1.6.3",
     "rhino3dm>=8.9",
     "requests>=2.32",
-    "scikit-learn>=1.5",
+    "scikit-learn>=1.7",  # MLPClassifier sample_weight,
     "matplotlib>=3.8",
     "tqdm>=4.66",
 ]

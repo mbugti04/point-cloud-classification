@@ -5,21 +5,34 @@ Photo by <a href="https://unsplash.com/@nivroz?utm_content=creditCopyText&utm_me
 
 Can a neural network tell which New York City borough a neighborhood is in,
 just from the 3D shape of its buildings? This project converts the city's
-official 3D building model into labeled point clouds and trains a Point
-Transformer to classify them by borough. 
+official 3D building model into labeled samples and trains two transformers
+to classify them by borough. The transformers include a Point Transformer on raw points, and a
+transformer whose tokens are individual buildings.
 
 This improves upon the 2024 version of my project, found in the [legacy](legacy/) folder.
 
 ## Results
 The 2024 version reported 83% accuracy, chosen from the best epoch on a test set of about 30 samples. See [legacy/README.md](legacy/README.md).
 
-Results for the new version are in progress.
+The new version tests on community districts never seen in training. Scores are
+on the test set, with chance at 20% balanced accuracy. Rows marked ± are mean ±
+std over 3 seeds. Other deep-model rows are a single seed, and gradient boosting
+rows are one fit.
 
 | model | accuracy | balanced accuracy | macro-F1 |
 |---|---|---|---|
-| majority class | | | |
-| gradient boosting on tile statistics | | | |
-| Point Transformer | | | |
+| majority class | 34.7% | 20.0% | 10.3% |
+| Point Transformer | 43.3% | 40.3% | 41.5% |
+| Point Transformer + height statistics, regularized | 46.5% | 45.9% | 48.0% |
+| gradient boosting on 12 tile statistics | 53.4% | 56.7% | 56.2% |
+| building transformer | 61.0 ± 2.2% | 61.8 ± 3.4% | 61.9 ± 3.1% |
+| gradient boosting on building + height statistics | 65.1% | 67.2% | 66.6% |
+| **building transformer + height statistics** | **68.2 ± 0.5%** | **70.8 ± 0.8%** | **70.5 ± 0.3%** |
+
+Apart from the majority class, these all trained on the train split only. With training labels shuffled,
+the best model falls to 21.4% balanced accuracy, close to chance.
+
+All rows share one split. 
 
 ## Data
 
@@ -58,8 +71,10 @@ districts and stored in Rhino's `.3dm` format. The pipeline:
   weighted by inverse class frequency, and balanced accuracy and macro-F1 are
   reported alongside accuracy.
 - **Baselines.** A majority-class predictor, and gradient boosting on twelve
-  per-tile statistics (point count, height percentiles, spread). The Point
-  Transformer is only interesting if it beats the latter.
+  per-tile statistics (point count, height percentiles, spread), plus versions
+  using building statistics. A deep model is only interesting if it beats these.
+- **Shuffled-label control.** Retraining with scrambled training labels should
+  drop scores to chance, which checks that nothing leaks into the score.
 
 ## Setup
 
@@ -80,8 +95,8 @@ from the CUDA 12.8 build that matches PyPI's Linux torch 2.8:
 pip install -e ".[dev,hub]" --find-links https://data.pyg.org/whl/torch-2.8.0+cu128.html
 ```
 
-CUDA wheels exist for Python 3.10–3.13 on Linux x86_64. The GPU path hasn't
-been tested yet.
+CUDA wheels exist for Python 3.10–3.13 on Linux x86_64. Results above were
+trained this way on a Kaggle T4 GPU.
 
 ## Usage
 
@@ -101,6 +116,21 @@ Every command takes `--help`. For a quick check on a few districts:
 uv run pcc download --districts MN06 MN09 BX02 BX03 BX05 BK13 BK16 QN03 QN04
 uv run pcc tile && uv run pcc split
 uv run pcc train --seeds 0 --epochs 2 --max-tiles-per-split 64
+```
+
+### Building transformer
+
+A second model treats each building as one token (local position, height,
+footprint area, compactness, roof levels, distance to the nearest building)
+and runs a transformer encoder over the buildings of a tile. Building tiles
+reuse the point tiles' grid and indices, so the same `splits.json` applies.
+
+```bash
+uv run pcc download --what buildings    # skip if `pcc download` already ran (it extracts both)
+uv run pcc tile-buildings               # writes data/building_tiles/, needs data/tiles/
+uv run pcc baseline --building-tiles-dir data/building_tiles   # adds gradient boosting on building aggregates
+uv run pcc train --model building-transformer --dropout 0.1 --out runs/buildings
+uv run pcc train --model building-transformer --dropout 0.1 --tile-stats --out runs/buildings-stats   # also uses data/tiles/
 ```
 
 ## Repository layout

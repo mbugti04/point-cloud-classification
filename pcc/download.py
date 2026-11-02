@@ -1,4 +1,5 @@
-"""Download NYC 3D model districts and convert each to an .npz of vertices.
+"""Download NYC 3D model districts and convert each to .npz files of
+vertices (for point tiles) and of buildings (for building tiles).
 
 Districts are processed one at a time (download, unzip, extract, delete) so the
 full ~8.6 GB of zips never needs to be on disk at once. Extraction runs in a
@@ -15,6 +16,7 @@ import requests
 from tqdm import tqdm
 
 from . import config
+from .buildings import extract_buildings_to_file
 from .extract import extract_to_file
 
 
@@ -30,17 +32,17 @@ def _download(url: str, dest: Path) -> None:
     tmp.replace(dest)
 
 
-def _extract_worker(path_3dm: str, out_path: str, queue) -> None:
+def _extract_worker(extract, path_3dm: str, out_path: str, queue) -> None:
     try:
-        queue.put(("ok", extract_to_file(Path(path_3dm), Path(out_path))))
+        queue.put(("ok", extract(Path(path_3dm), Path(out_path))))
     except Exception as e:  # reported back to the parent
         queue.put(("error", repr(e)))
 
 
-def _extract_in_subprocess(path_3dm: Path, out_path: Path) -> int:
+def _extract_in_subprocess(extract, path_3dm: Path, out_path: Path) -> int:
     ctx = mp.get_context("spawn")
     queue = ctx.Queue()
-    proc = ctx.Process(target=_extract_worker, args=(str(path_3dm), str(out_path), queue))
+    proc = ctx.Process(target=_extract_worker, args=(extract, str(path_3dm), str(out_path), queue))
     proc.start()
     status, value = queue.get()
     proc.join()
@@ -49,10 +51,25 @@ def _extract_in_subprocess(path_3dm: Path, out_path: Path) -> int:
     return value
 
 
-def process_district(district: str, raw_dir: Path, interim_dir: Path, keep_raw: bool = False) -> int | None:
-    """Download and extract one district. Returns its point count, or None if unavailable."""
-    out_path = interim_dir / f"{district}.npz"
-    if out_path.exists():
+def _outputs(district: str, interim_dir: Path | None, buildings_dir: Path | None) -> dict:
+    """{label: (extract function, output path)} for the outputs not yet on disk."""
+    outputs = {}
+    if interim_dir is not None:
+        outputs["vertices"] = (extract_to_file, interim_dir / f"{district}.npz")
+    if buildings_dir is not None:
+        outputs["buildings"] = (extract_buildings_to_file, buildings_dir / f"{district}.npz")
+    return {k: v for k, v in outputs.items() if not v[1].exists()}
+
+
+def process_district(
+    district: str, raw_dir: Path, interim_dir: Path | None, keep_raw: bool = False, buildings_dir: Path | None = None,
+) -> dict[str, int] | None:
+    """Download and extract one district. Returns {output: count}, or None if unavailable or already done.
+
+    Pass `interim_dir=None` or `buildings_dir=None` to skip that output.
+    """
+    outputs = _outputs(district, interim_dir, buildings_dir)
+    if not outputs:
         return None
 
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -70,19 +87,23 @@ def process_district(district: str, raw_dir: Path, interim_dir: Path, keep_raw: 
         zf.extractall(work_dir)
     path_3dm = next(work_dir.rglob("*.3dm"))
 
-    n_points = _extract_in_subprocess(path_3dm, out_path)
+    counts = {label: _extract_in_subprocess(extract, path_3dm, out_path)
+              for label, (extract, out_path) in outputs.items()}
 
     shutil.rmtree(work_dir)
     if not keep_raw:
         zip_path.unlink()
-    return n_points
+    return counts
 
 
-def download_all(districts: list[str], raw_dir: Path, interim_dir: Path, keep_raw: bool = False) -> None:
+def download_all(
+    districts: list[str], raw_dir: Path, interim_dir: Path | None, keep_raw: bool = False,
+    buildings_dir: Path | None = None,
+) -> None:
     for district in tqdm(districts, desc="districts"):
-        if (interim_dir / f"{district}.npz").exists():
+        if not _outputs(district, interim_dir, buildings_dir):
             tqdm.write(f"  {district}: already extracted")
             continue
-        n_points = process_district(district, raw_dir, interim_dir, keep_raw)
-        if n_points is not None:
-            tqdm.write(f"  {district}: {n_points:,} unique vertices")
+        counts = process_district(district, raw_dir, interim_dir, keep_raw, buildings_dir)
+        if counts is not None:
+            tqdm.write(f"  {district}: " + ", ".join(f"{n:,} {label}" for label, n in counts.items()))
