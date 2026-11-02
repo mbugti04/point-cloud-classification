@@ -110,11 +110,15 @@ class BuildingTransformer(torch.nn.Module):
     the checkpoint). There is no positional encoding beyond the position
     itself, since a tile's buildings have no order. A learned [CLS] token,
     never masked, reads out the tile, so tiles with no buildings still work.
+
+    With `extra_dim` > 0, per-tile features (vertex count, height statistics)
+    are standardized, embedded and joined to the [CLS] output before the head.
     """
 
     def __init__(self, num_classes: int, feature_dim: int, width: int = 64, layers: int = 3, heads: int = 4,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1, extra_dim: int = 0, extra_hidden: int = 32):
         super().__init__()
+        self.extra_dim = extra_dim
         self.register_buffer("x_mean", torch.zeros(feature_dim))
         self.register_buffer("x_std", torch.ones(feature_dim))
         self.embed = MLP([3 + feature_dim, width, width], norm=None)
@@ -122,11 +126,21 @@ class BuildingTransformer(torch.nn.Module):
         layer = torch.nn.TransformerEncoderLayer(width, heads, 2 * width, dropout, batch_first=True, norm_first=True)
         self.encoder = torch.nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = torch.nn.LayerNorm(width)
-        self.head = MLP([width, 64, num_classes], norm=None, dropout=dropout)
+        head_in = width
+        if extra_dim:
+            self.register_buffer("extra_mean", torch.zeros(extra_dim))
+            self.register_buffer("extra_std", torch.ones(extra_dim))
+            self.extra_mlp = MLP([extra_dim, extra_hidden], norm=None, plain_last=False)
+            head_in += extra_hidden
+        self.head = MLP([head_in, 64, num_classes], norm=None, dropout=dropout)
 
     def set_feature_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
         self.x_mean.copy_(mean)
         self.x_std.copy_(std)
+
+    def set_extra_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        self.extra_mean.copy_(mean)
+        self.extra_std.copy_(std)
 
     def forward(self, data):
         tokens = self.embed(torch.cat([data.pos, (data.x - self.x_mean) / self.x_std], dim=1))
@@ -134,4 +148,8 @@ class BuildingTransformer(torch.nn.Module):
         seq = torch.cat([self.cls.expand(dense.size(0), -1, -1), dense], dim=1)
         padding = torch.cat([mask.new_zeros(dense.size(0), 1), ~mask], dim=1)
         out = self.encoder(seq, src_key_padding_mask=padding)
-        return F.log_softmax(self.head(self.norm(out[:, 0])), dim=-1)
+        x = self.norm(out[:, 0])
+        if self.extra_dim:
+            extra = (data.extra - self.extra_mean) / self.extra_std
+            x = torch.cat([x, self.extra_mlp(extra)], dim=1)
+        return F.log_softmax(self.head(x), dim=-1)

@@ -115,6 +115,7 @@ uv run pcc download --what buildings    # skip if `pcc download` already ran (it
 uv run pcc tile-buildings               # writes data/building_tiles/, needs data/tiles/
 uv run pcc baseline --building-tiles-dir data/building_tiles   # adds gradient boosting on building aggregates
 uv run pcc train --model building-transformer --dropout 0.1 --out runs/buildings
+uv run pcc train --model building-transformer --dropout 0.1 --tile-stats --out runs/buildings-stats   # also uses data/tiles/
 ```
 
 ## Repository layout

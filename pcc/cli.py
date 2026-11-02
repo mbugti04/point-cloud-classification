@@ -134,7 +134,7 @@ def main(argv=None):
                    help="divide heights by this many meters (default: half the tile size, like x and y)")
     p.add_argument("--density", action="store_true", help="also give the model the tile's log vertex count")
     p.add_argument("--tile-stats", action="store_true",
-                   help="hybrid: also give the model the tile's height statistics from the baseline")
+                   help="hybrid: also give the model the tile's height statistics from the point tiles")
     p.add_argument("--dims", type=int, nargs="+", default=[32, 64, 128, 256, 512],
                    help="point transformer: feature width at each level")
     p.add_argument("--width", type=int, default=64, help="building transformer: token width")

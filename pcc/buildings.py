@@ -168,7 +168,8 @@ def tile_buildings_all(buildings_dir: Path, tiles_dir: Path, out_dir: Path) -> d
 class BuildingStore:
     """Building tiles of the listed districts, loaded into memory once."""
 
-    def __init__(self, building_tiles_dir: Path, districts: set[str]):
+    def __init__(self, building_tiles_dir: Path, districts: set[str], points=None):
+        self.points = points  # optional TileStore, for per-tile point statistics
         self.tiles = {}
         self.tile_size = None
         for district in sorted(districts):

@@ -32,6 +32,17 @@ class TileStore:
         return int(self.tiles[district]["n_points"][index])
 
 
+def tile_extra_features(store: TileStore, tiles: list[tuple[str, int]], density: bool,
+                        tile_stats: bool) -> np.ndarray | None:
+    """Per-tile vertex count and height statistics from the point tiles, or None if neither is asked for."""
+    names = (FEATURE_GROUPS["density"] if density else []) + (FEATURE_GROUPS["height"] if tile_stats else [])
+    if not names:
+        return None
+    cols = columns(keep=names)
+    rows = [tile_features(store.points(d, i), store.n_points(d, i))[cols] for d, i in tiles]
+    return np.stack(rows).astype(np.float32)
+
+
 class TileDataset(Dataset):
     """Each item is one tile resampled to `num_points` points.
 
@@ -74,15 +85,7 @@ class TileDataset(Dataset):
         self.labels = np.array([config.label_of(d) for d, _ in self.tiles])
         if shuffle_labels:
             self.labels = np.random.default_rng(seed).permutation(self.labels)
-        self.extra = self._extra_features(density, tile_stats)
-
-    def _extra_features(self, density: bool, tile_stats: bool) -> np.ndarray | None:
-        names = (FEATURE_GROUPS["density"] if density else []) + (FEATURE_GROUPS["height"] if tile_stats else [])
-        if not names:
-            return None
-        cols = columns(keep=names)
-        rows = [tile_features(self.store.points(d, i), self.store.n_points(d, i))[cols] for d, i in self.tiles]
-        return np.stack(rows).astype(np.float32)
+        self.extra = tile_extra_features(store, self.tiles, density, tile_stats)
 
     def len(self) -> int:
         return len(self.tiles)
@@ -119,6 +122,9 @@ class BuildingTileDataset(Dataset):
     per-building features (see `buildings.TOKEN_FEATURES`). Tiles with more
     than `max_buildings` buildings are subsampled: randomly in training,
     deterministically in eval.
+
+    `density` and `tile_stats` add the same per-tile `extra` features as
+    `TileDataset`, read from the point tiles in `store.points`.
     """
 
     def __init__(
@@ -131,6 +137,8 @@ class BuildingTileDataset(Dataset):
         shuffle_labels: bool = False,
         height_scale: float = 30.0,
         max_buildings: int = 512,
+        density: bool = False,
+        tile_stats: bool = False,
     ):
         super().__init__()
         self.store = store
@@ -143,6 +151,7 @@ class BuildingTileDataset(Dataset):
         self.labels = np.array([config.label_of(d) for d, _ in self.tiles])
         if shuffle_labels:
             self.labels = np.random.default_rng(seed).permutation(self.labels)
+        self.extra = tile_extra_features(store.points, self.tiles, density, tile_stats)
 
     def len(self) -> int:
         return len(self.tiles)
@@ -167,6 +176,9 @@ class BuildingTileDataset(Dataset):
                 c, s = np.cos(theta), np.sin(theta)
                 pos[:, :2] = pos[:, :2] @ np.array([[c, -s], [s, c]], dtype=np.float32)
             pos = pos + rng.normal(0, 0.005, pos.shape).astype(np.float32)
-        return Data(pos=torch.from_numpy(np.ascontiguousarray(pos, dtype=np.float32)),
+        data = Data(pos=torch.from_numpy(np.ascontiguousarray(pos, dtype=np.float32)),
                     x=torch.from_numpy(np.ascontiguousarray(tokens[:, 3:], dtype=np.float32)),
                     y=torch.tensor([self.labels[idx]]), num_nodes=len(tokens))
+        if self.extra is not None:
+            data.extra = torch.from_numpy(self.extra[idx:idx + 1])
+        return data

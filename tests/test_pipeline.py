@@ -178,7 +178,7 @@ def test_building_transformer_handles_empty_tiles(tmp_path):
     from torch_geometric.loader import DataLoader
 
     from pcc.buildings import BuildingStore, tile_buildings
-    from pcc.data import BuildingTileDataset
+    from pcc.data import BuildingTileDataset, TileStore
     from pcc.features import BUILDING_FEATURE_NAMES, building_features
     from pcc.model import BuildingTransformer
 
@@ -198,6 +198,21 @@ def test_building_transformer_handles_empty_tiles(tmp_path):
     out = model(next(iter(DataLoader(ds, batch_size=2))))  # empty tile last
     assert out.shape == (2, len(config.BOROUGHS))
     assert torch.isfinite(out).all()
+
+    # Height statistics from the point tiles join the [CLS] output, even for the empty tile.
+    points = np.random.default_rng(1).uniform(0, 30, (600, 3)).astype(np.float32)
+    np.savez(tmp_path / "points.npz", tile_size=250.0, ij=ij, points=points, offsets=np.array([0, 300, 600]),
+             n_points=np.array([300, 300]))
+    (tmp_path / "pts").mkdir()
+    (tmp_path / "points.npz").rename(tmp_path / "pts" / "MN01.npz")
+    hybrid_store = BuildingStore(tmp_path, {"MN01"}, TileStore(tmp_path / "pts", {"MN01"}))
+    hybrid = BuildingTileDataset(hybrid_store, [("MN01", 0), ("MN01", 1)], train=False, tile_stats=True)
+    model = BuildingTransformer(len(config.BOROUGHS), feats.shape[1], width=16, layers=1, heads=2,
+                                extra_dim=hybrid.extra.shape[1])
+    model.set_extra_stats(torch.from_numpy(hybrid.extra.mean(0)), torch.from_numpy(hybrid.extra.std(0) + 1e-6))
+    model.eval()
+    out = model(next(iter(DataLoader(hybrid, batch_size=2))))
+    assert out.shape == (2, len(config.BOROUGHS)) and torch.isfinite(out).all()
 
     empty = building_features(store.tokens("MN01", 1), 250.0)
     assert len(empty) == len(BUILDING_FEATURE_NAMES) and empty[0] == 0

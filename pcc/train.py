@@ -113,7 +113,8 @@ def _std(values: np.ndarray) -> torch.Tensor:
 
 def make_datasets(cfg: TrainConfig, store, tiles: dict, seed: int) -> tuple:
     if cfg.model == "building-transformer":
-        common = dict(seed=seed, height_scale=cfg.height_scale or 30.0, max_buildings=cfg.max_buildings)
+        common = dict(seed=seed, height_scale=cfg.height_scale or 30.0, max_buildings=cfg.max_buildings,
+                      density=cfg.density, tile_stats=cfg.tile_stats)
         return (BuildingTileDataset(store, tiles["train"], train=True, rotate=cfg.rotate,
                                     shuffle_labels=cfg.shuffle_labels, **common),
                 BuildingTileDataset(store, tiles["val"], train=False, **common),
@@ -129,11 +130,13 @@ def make_model(cfg: TrainConfig, train_ds, num_classes: int) -> torch.nn.Module:
     """Build the model, with feature standardization taken from the training tiles."""
     if cfg.model == "building-transformer":
         features = train_ds.all_features()
-        model = BuildingTransformer(num_classes, features.shape[1], cfg.width, cfg.layers, cfg.heads, cfg.dropout)
+        extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
+        model = BuildingTransformer(num_classes, features.shape[1], cfg.width, cfg.layers, cfg.heads, cfg.dropout,
+                                    extra_dim=extra_dim)
         model.set_feature_stats(torch.from_numpy(features.mean(axis=0)), _std(features))
-        return model
-    extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
-    model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim, dropout=cfg.dropout)
+    else:
+        extra_dim = 0 if train_ds.extra is None else train_ds.extra.shape[1]
+        model = PointTransformerClassifier(num_classes, tuple(cfg.dims), cfg.k, extra_dim, dropout=cfg.dropout)
     if extra_dim:
         model.set_extra_stats(torch.from_numpy(train_ds.extra.mean(axis=0)), _std(train_ds.extra))
     return model
@@ -237,7 +240,8 @@ def run(cfg: TrainConfig) -> dict:
     if cfg.model not in MODELS:
         raise ValueError(f"Unknown model {cfg.model!r}; choose from {MODELS}")
     if cfg.model == "building-transformer":
-        store = BuildingStore(Path(cfg.building_tiles_dir), districts)
+        points = TileStore(Path(cfg.tiles_dir), districts) if cfg.density or cfg.tile_stats else None
+        store = BuildingStore(Path(cfg.building_tiles_dir), districts, points)
     else:
         store = TileStore(Path(cfg.tiles_dir), districts)
     write_json(out_dir / "config.json", {**asdict(cfg), "split_seed": splits["seed"],
