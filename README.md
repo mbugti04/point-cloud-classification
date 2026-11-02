@@ -15,7 +15,7 @@ This improves upon the 2024 version of my project, found in the [legacy](legacy/
 The 2024 version reported 83% accuracy, chosen from the best epoch on a test set of about 30 samples. See [legacy/README.md](legacy/README.md).
 
 The new version tests on community districts never seen in training. Scores are
-on the test set, with chance at 20% balanced accuracy. Rows marked ± are mean ±
+on the test set, with chance (random guessing) at 20% balanced accuracy. Rows marked ± are mean ±
 std over 3 seeds. Other deep-model rows are a single seed, and gradient boosting
 rows are one fit.
 
@@ -32,7 +32,19 @@ rows are one fit.
 Apart from the majority class, these all trained on the train split only. With training labels shuffled,
 the best model falls to 21.4% balanced accuracy, close to chance.
 
-All rows share one split. 
+All rows above share one split. The two best models were also compared on 4 more splits to see how they are affected: 
+
+| split | building transformer + height statistics | gradient boosting on building + height statistics |
+|---|---|---|
+| 0 (above) | 70.8% | 67.2% |
+| 1 | 70.5% | 60.7% |
+| 2 | 71.8% | 64.8% |
+| 3 | 63.0% | 59.1% |
+| 4 | 74.9% | 68.2% |
+| **mean ± std** | **70.2 ± 4.4%** | **64.0 ± 4.0%** |
+
+Scores are balanced accuracy. Split 0 is the mean of 3 seeds, and splits 1–4 use one
+seed each. The transformer wins on all 5.
 
 ## Data
 
