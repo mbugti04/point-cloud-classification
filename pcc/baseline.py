@@ -137,6 +137,12 @@ def run(tiles_dir: Path, splits_path: Path, out_dir: Path, building_tiles_dir: P
         results["gb_buildings_train_only"] = fit_score(B_train[only], y_train[only], B_test, y_test)
         results["gb_buildings_plus_points"] = fit_score(
             np.hstack([B_train, X_train]), y_train, np.hstack([B_test, X_test]), y_test)
+        results["gb_buildings_plus_points_train_only"] = fit_score(
+            np.hstack([B_train, X_train])[only], y_train[only], np.hstack([B_test, X_test]), y_test)
+        # Exactly the inputs and training tiles of the transformer with --tile-stats.
+        results["gb_buildings_plus_height_train_only"] = fit_score(
+            np.hstack([B_train, X_train[:, height]])[only], y_train[only],
+            np.hstack([B_test, X_test[:, height]]), y_test)
 
     write_json(out_dir / "summary.json", results)
     md = comparison_table(results) + "\n" + "".join(
